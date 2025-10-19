@@ -30,6 +30,110 @@
 - Removed invite code validation from signUp function
 - Simplified signup page to remove invite code field
 - Users will be created manually in Supabase Dashboard for speed
-- SUPABASE_SETUP.md now contains only organizations and organization_members tables
+- SUPABASE_SETUP.md now contains SQL to create TESTORG and add ops@getbiddable.com
 - Note: User needs to create .env.local with real Supabase credentials
 - Note: User needs to run SQL commands from SUPABASE_SETUP.md in Supabase dashboard
+
+[2025-10-19] Created Handoff Document for Asset Creator Backend
+- Created HANDOFF_ASSET_CREATOR.md with full implementation guide
+- Includes database schema, storage setup, API routes, and frontend updates
+- Documented data structure, RLS policies, and testing checklist
+- Ready for next team to implement file uploads and asset management
+
+[2025-10-19] Google Search Ads Text Ad System Implementation
+- Created database migration: supabase/migrations/create_assets_table.sql
+  - Assets table with support for images, videos, and text ads
+  - Added ad_format field (rsa, eta, generic) for Google Search Ad types
+  - Added ad_data JSONB field for storing structured text ad data
+  - RLS policies ensure users can only access assets from their organization
+  - Indexes on organization_id, type, and status for query performance
+
+- Created text ad validation library: lib/text-ads.ts
+  - Character limits for RSA (15 headlines, 4 descriptions) and ETA (3 headlines, 2 descriptions)
+  - validateTextAd() function to check all format requirements
+  - Helper functions: getCharacterLimit(), getMaxItems(), formatTextAdForDisplay()
+  - URL validation for final URLs
+
+- Created text ad form component: components/text-ad-form.tsx
+  - Dynamic form that adapts to selected ad format (RSA/ETA/Generic)
+  - Add/remove headlines and descriptions with character counters
+  - Real-time validation with color-coded character counts
+  - Display path fields for URL customization
+  - Error display for validation failures
+  - Callbacks for submit and preview actions
+
+- Created Google Search preview component: components/google-search-preview.tsx
+  - Realistic Google Search results preview
+  - Shows how ad appears with headlines, descriptions, and display URL
+  - Adapts display for RSA (rotated combinations) vs ETA (fixed)
+  - Empty state for when no content is entered
+  - Informational notes about ad behavior
+
+- Integrated components into asset-creator-content.tsx
+  - Added TextAdForm component for text asset type
+  - Added GoogleSearchPreview component to preview panel
+  - Wired up submit and preview handlers
+  - Text ad form now replaces simple textarea when "text" asset type is selected
+  - Fixed duplicate "Asset Name" field - only shows for image/video, not text (TextAdForm has its own)
+
+- Created API route for assets: app/api/assets/route.ts
+  - POST endpoint creates new assets in database
+  - GET endpoint fetches all assets for user's organization
+  - Authenticates user and gets organization from organization_members table
+  - Validates required fields and handles errors
+  - Returns created asset data on success
+
+- Updated asset-creator-content.tsx with API integration
+  - handleTextAdSubmit now calls /api/assets POST endpoint
+  - Sends ad_format, ad_data JSONB, and metadata to database
+  - Handles success and error responses with user feedback
+
+Ready to test: Create a text ad and verify it saves to the assets table
+
+- Created SQL to add user to organization: supabase/migrations/add_user_to_testorg.sql
+  - Adds ops@getbiddable.com to TEST ORG as admin
+  - Handles errors if user or org not found
+  - Uses ON CONFLICT to avoid duplicates
+
+- Fixed 401 Unauthorized error in API route
+  - Changed from browser client to server client in app/api/assets/route.ts
+  - Server client properly reads authentication cookies
+  - Browser client doesn't work in API routes (server-side)
+
+- Created complete organization setup SQL: supabase/migrations/setup_organizations.sql
+  - Creates organizations table with RLS policies
+  - Creates organization_members table with RLS policies
+  - Inserts TEST ORG organization
+  - Adds ops@getbiddable.com to TEST ORG as admin
+  - Handles cases where tables already exist (IF NOT EXISTS)
+  - User must be signed up in auth.users first before running this
+
+- Added debug logging to API route
+  - Logs authenticated user email and ID
+  - Logs organization query results
+  - Returns detailed error with userId when org not found
+  - Check server console logs to see what's happening
+
+- Fixed infinite recursion in RLS policies
+  - Created fix_organization_policies.sql (didn't work - policies still exist)
+  - Problem: organization_members policy was creating circular reference
+  - Solution: Simple policy that just checks user_id = auth.uid()
+  - No subqueries needed for organization_members SELECT policy
+
+- Created comprehensive policy reset: reset_all_policies.sql
+  - Disables RLS temporarily
+  - Drops ALL policies using dynamic SQL loop
+  - Re-enables RLS
+  - Creates clean, simple policies with no recursion
+  - organization_members: just checks user_id = auth.uid()
+  - organizations: uses EXISTS with subquery (safe because org_members policy is simple)
+  - Includes verification query at end to show what policies exist
+  - SUCCESS: Text ads now save to database correctly
+
+[2025-10-19] Google Search Ads Text Ad System - COMPLETED
+- Full implementation from database to UI working
+- Users can create RSA, ETA, and generic text ads
+- Character limits enforced with real-time validation
+- Google Search preview shows realistic ad appearance
+- Assets save to database with organization scoping
+- All RLS policies working correctly

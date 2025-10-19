@@ -8,6 +8,9 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Upload, ImageIcon, Video, FileText, Palette, Eye } from "lucide-react"
+import { TextAdForm } from "@/components/text-ad-form"
+import { GoogleSearchPreview } from "@/components/google-search-preview"
+import { TextAdData, AdFormat } from "@/lib/text-ads"
 
 interface AdAsset {
   id: string
@@ -54,6 +57,54 @@ export function AssetCreatorContent() {
   const [activeTab, setActiveTab] = useState<"create" | "library">("create")
   const [assetType, setAssetType] = useState<"image" | "video" | "text">("image")
 
+  // State for text ad preview
+  const [textAdPreviewData, setTextAdPreviewData] = useState<TextAdData>({
+    headlines: [],
+    descriptions: [],
+    paths: [],
+  })
+  const [textAdPreviewFormat, setTextAdPreviewFormat] = useState<AdFormat>("rsa")
+
+  const handleTextAdSubmit = async (data: TextAdData, format: AdFormat, name: string) => {
+    try {
+      const response = await fetch("/api/assets", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          type: "text",
+          ad_format: format,
+          ad_data: data,
+          format: format.toUpperCase(),
+          size: `${data.headlines.length} headlines, ${data.descriptions.length} descriptions`,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        console.error("Error creating asset:", result.error)
+        alert(`Error: ${result.error}`)
+        return
+      }
+
+      console.log("Asset created successfully:", result.asset)
+      alert(`Text ad "${name}" created successfully!`)
+
+      // Optionally refresh the asset list or clear the form
+    } catch (error) {
+      console.error("Error submitting text ad:", error)
+      alert("Failed to create text ad. Please try again.")
+    }
+  }
+
+  const handleTextAdPreview = (data: TextAdData, format: AdFormat) => {
+    setTextAdPreviewData(data)
+    setTextAdPreviewFormat(format)
+  }
+
   return (
     <div className="p-8">
       <div className="flex justify-between items-center mb-8">
@@ -87,16 +138,18 @@ export function AssetCreatorContent() {
               <CardTitle className="text-foreground">Create New Asset</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div>
-                <Label htmlFor="asset-name" className="text-foreground">
-                  Asset Name
-                </Label>
-                <Input
-                  id="asset-name"
-                  placeholder="Enter asset name"
-                  className="mt-1 bg-background border-border text-foreground"
-                />
-              </div>
+              {assetType !== "text" && (
+                <div>
+                  <Label htmlFor="asset-name" className="text-foreground">
+                    Asset Name
+                  </Label>
+                  <Input
+                    id="asset-name"
+                    placeholder="Enter asset name"
+                    className="mt-1 bg-background border-border text-foreground"
+                  />
+                </div>
+              )}
 
               <div>
                 <Label className="text-foreground">Asset Type</Label>
@@ -167,71 +220,45 @@ export function AssetCreatorContent() {
               )}
 
               {assetType === "text" && (
-                <>
-                  <div>
-                    <Label htmlFor="ad-copy" className="text-foreground">
-                      Ad Copy
-                    </Label>
-                    <Textarea
-                      id="ad-copy"
-                      placeholder="Write your ad copy here..."
-                      className="mt-1 bg-background border-border text-foreground min-h-32"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="headline" className="text-foreground">
-                      Headline
-                    </Label>
-                    <Input
-                      id="headline"
-                      placeholder="Enter compelling headline"
-                      className="mt-1 bg-background border-border text-foreground"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="cta" className="text-foreground">
-                      Call to Action
-                    </Label>
-                    <Input
-                      id="cta"
-                      placeholder="e.g., Shop Now, Learn More"
-                      className="mt-1 bg-background border-border text-foreground"
-                    />
-                  </div>
-                </>
+                <TextAdForm onSubmit={handleTextAdSubmit} onPreview={handleTextAdPreview} />
               )}
 
-              <div className="flex space-x-2">
-                <Button className="bg-primary hover:bg-primary-hover text-white flex-1">Create Asset</Button>
-                <Button variant="outline" className="flex items-center space-x-2 bg-transparent">
-                  <Eye className="h-4 w-4" />
-                  <span>Preview</span>
-                </Button>
-              </div>
+              {assetType !== "text" && (
+                <div className="flex space-x-2">
+                  <Button className="bg-primary hover:bg-primary-hover text-white flex-1">Create Asset</Button>
+                  <Button variant="outline" className="flex items-center space-x-2 bg-transparent">
+                    <Eye className="h-4 w-4" />
+                    <span>Preview</span>
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 
           {/* Preview Panel */}
-          <Card className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-foreground flex items-center space-x-2">
-                <Palette className="h-5 w-5" />
-                <span>Asset Preview</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="bg-background border border-border p-8 text-center min-h-64 flex items-center justify-center">
-                <div className="text-muted-foreground">
-                  <div className="mb-4">
-                    {assetType === "image" && <ImageIcon className="mx-auto h-16 w-16" />}
-                    {assetType === "video" && <Video className="mx-auto h-16 w-16" />}
-                    {assetType === "text" && <FileText className="mx-auto h-16 w-16" />}
+          {assetType === "text" ? (
+            <GoogleSearchPreview adData={textAdPreviewData} adFormat={textAdPreviewFormat} />
+          ) : (
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-foreground flex items-center space-x-2">
+                  <Palette className="h-5 w-5" />
+                  <span>Asset Preview</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="bg-background border border-border p-8 text-center min-h-64 flex items-center justify-center">
+                  <div className="text-muted-foreground">
+                    <div className="mb-4">
+                      {assetType === "image" && <ImageIcon className="mx-auto h-16 w-16" />}
+                      {assetType === "video" && <Video className="mx-auto h-16 w-16" />}
+                    </div>
+                    <p>Asset preview will appear here</p>
                   </div>
-                  <p>Asset preview will appear here</p>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
