@@ -137,3 +137,13 @@ Ready to test: Create a text ad and verify it saves to the assets table
 - Google Search preview shows realistic ad appearance
 - Assets save to database with organization scoping
 - All RLS policies working correctly
+
+[2025-10-19] AI Image Generation Planning
+- Created comprehensive plan: AI_IMAGE_GENERATION_PLAN.md
+- Workflow: User enters prompt → Create DB record → Trigger n8n webhook → Poll for completion
+- Database additions needed: ai_prompt and generation_status columns
+- n8n handles actual image generation and updates file_url when complete
+- Frontend polls every 3 seconds for status updates
+- Status messages: "Saving...", "Triggering AI...", "Generating...", "Ready!"
+- Need to create: AIImageForm component, generate-image API route, polling logic
+- Asset library will display all images with their URLs from database
