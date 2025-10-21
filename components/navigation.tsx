@@ -56,14 +56,17 @@ export function Navigation() {
 
       {user && (
         <div className="mt-auto pt-4 border-t border-border space-y-3">
-          <div className="flex items-center space-x-3 px-4 py-2">
+          <Link
+            href="/profile"
+            className="flex items-center space-x-3 px-4 py-2 hover:bg-muted transition-colors rounded-md cursor-pointer"
+          >
             <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
               <User className="h-4 w-4 text-white" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground truncate">{user.email}</p>
             </div>
-          </div>
+          </Link>
           <Button
             variant="outline"
             className="w-full justify-start"
