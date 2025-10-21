@@ -170,3 +170,50 @@ Ready to test: Create a text ad and verify it saves to the assets table
   - organization_members table is the source of truth for user-org relationships
   - Table structure: user_id, organization_id, role
   - Manual user addition to orgs done via INSERT into organization_members
+
+[2025-10-21] Asset Library and Image Upload Implementation
+- Renamed "Asset Creator" to "Creative" throughout the app
+  - Updated navigation.tsx sidebar menu
+  - Updated page title in asset-creator-content.tsx
+- Implemented Asset Library with table view
+  - Replaced card grid layout with clean table with thin rows
+  - Table columns: Preview, Type, Name, Format, Status, Created, Created By, Actions
+  - Preview column shows 64x64px image thumbnails
+  - Actions column has "View" button to open full-size images in new tab
+  - Fetches real assets from /api/assets endpoint
+  - Filters assets by user's organization (organization-scoped)
+  - Loading and empty states
+  - Hover effects on rows for better UX
+  - Status badges with color coding (green=approved, yellow=draft, red=rejected)
+- Image upload functionality (based on bkt.py reference)
+  - Created /app/api/assets/upload-image/route.ts
+    - Uploads images to Supabase Storage bucket 'biddable-images'
+    - Organizes by organization: {organization_id}/{timestamp}-{filename}
+    - Gets public URL from Supabase
+    - Saves asset record to database with file_url
+    - Handles errors and rollback (deletes from storage if DB insert fails)
+  - Created ImageUploadForm component (components/image-upload-form.tsx)
+    - Drag & drop file upload support
+    - Live image preview before upload
+    - Auto-detects image format (JPG, PNG, WebP, GIF, SVG)
+    - Upload progress indicator
+    - File validation (images only)
+  - Integrated into Creative page
+    - Shows ImageUploadForm when "Image" asset type is selected
+    - Auto-refreshes Asset Library after successful upload
+  - Updated .env.local.example
+    - Added NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET=biddable-images
+- Supabase Storage setup completed
+  - Bucket name: biddable-images
+  - Made bucket public for public URL access
+  - Created RLS policies for organization-based access control
+    - Users can INSERT to their org folder
+    - Users can SELECT from their org folder
+    - Users can UPDATE/DELETE in their org folder
+  - Policy structure uses storage.foldername(name)[1] to check org ID
+- Created IMAGE_UPLOAD_SETUP.md documentation
+- Image upload fully functional and tested
+  - Images upload to Supabase Storage successfully
+  - Public URLs generated and saved to database
+  - Thumbnails display in Asset Library
+  - Full images viewable via "View" button

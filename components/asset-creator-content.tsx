@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Upload, ImageIcon, Video, FileText, Palette, Eye } from "lucide-react"
 import { TextAdForm } from "@/components/text-ad-form"
 import { GoogleSearchPreview } from "@/components/google-search-preview"
+import { ImageUploadForm } from "@/components/image-upload-form"
 import { TextAdData, AdFormat } from "@/lib/text-ads"
 import { useAuth } from "@/lib/auth-context"
 
@@ -25,6 +26,7 @@ interface AdAsset {
   organization_id: string
   ad_format?: string | null
   ad_data?: any
+  file_url?: string | null
 }
 
 export function AssetCreatorContent() {
@@ -142,19 +144,6 @@ export function AssetCreatorContent() {
               <CardTitle className="text-foreground">Create New Asset</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {assetType !== "text" && (
-                <div>
-                  <Label htmlFor="asset-name" className="text-foreground">
-                    Asset Name
-                  </Label>
-                  <Input
-                    id="asset-name"
-                    placeholder="Enter asset name"
-                    className="mt-1 bg-background border-border text-foreground"
-                  />
-                </div>
-              )}
-
               <div>
                 <Label className="text-foreground">Asset Type</Label>
                 <div className="flex space-x-2 mt-2">
@@ -176,29 +165,7 @@ export function AssetCreatorContent() {
                 </div>
               </div>
 
-              {assetType === "image" && (
-                <>
-                  <div>
-                    <Label className="text-foreground">Image Format</Label>
-                    <Select>
-                      <SelectTrigger className="mt-1 bg-background border-border text-foreground">
-                        <SelectValue placeholder="Select format" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="square">Square (1080x1080)</SelectItem>
-                        <SelectItem value="landscape">Landscape (1200x628)</SelectItem>
-                        <SelectItem value="portrait">Portrait (1080x1350)</SelectItem>
-                        <SelectItem value="story">Story (1080x1920)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="border-2 border-dashed border-border p-8 text-center">
-                    <Upload className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground mb-2">Drop your image here or click to upload</p>
-                    <Button variant="outline">Choose File</Button>
-                  </div>
-                </>
-              )}
+              {assetType === "image" && <ImageUploadForm onSuccess={fetchAssets} />}
 
               {assetType === "video" && (
                 <>
@@ -225,16 +192,6 @@ export function AssetCreatorContent() {
 
               {assetType === "text" && (
                 <TextAdForm onSubmit={handleTextAdSubmit} onPreview={handleTextAdPreview} />
-              )}
-
-              {assetType !== "text" && (
-                <div className="flex space-x-2">
-                  <Button className="bg-primary hover:bg-primary-hover text-white flex-1">Create Asset</Button>
-                  <Button variant="outline" className="flex items-center space-x-2 bg-transparent">
-                    <Eye className="h-4 w-4" />
-                    <span>Preview</span>
-                  </Button>
-                </div>
               )}
             </CardContent>
           </Card>
@@ -285,17 +242,34 @@ export function AssetCreatorContent() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Preview</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Type</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Name</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Format</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Created</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Created By</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {assets.map((asset) => (
                       <tr key={asset.id} className="border-b border-border hover:bg-muted/50 transition-colors">
+                        <td className="py-3 px-4">
+                          {asset.type === "image" && asset.file_url ? (
+                            <img
+                              src={asset.file_url}
+                              alt={asset.name}
+                              className="w-16 h-16 object-cover rounded border border-border"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 bg-muted rounded border border-border flex items-center justify-center">
+                              {asset.type === "image" && <ImageIcon className="h-6 w-6 text-muted-foreground" />}
+                              {asset.type === "video" && <Video className="h-6 w-6 text-muted-foreground" />}
+                              {asset.type === "text" && <FileText className="h-6 w-6 text-muted-foreground" />}
+                            </div>
+                          )}
+                        </td>
                         <td className="py-3 px-4">
                           <div className="flex items-center space-x-2">
                             {asset.type === "image" && <ImageIcon className="h-4 w-4 text-muted-foreground" />}
@@ -334,6 +308,17 @@ export function AssetCreatorContent() {
                           <span className="text-sm text-muted-foreground font-mono">
                             {asset.user_id ? `${asset.user_id.substring(0, 8)}...` : "N/A"}
                           </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          {asset.file_url && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(asset.file_url, "_blank")}
+                            >
+                              View
+                            </Button>
+                          )}
                         </td>
                       </tr>
                     ))}
