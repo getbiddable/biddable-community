@@ -6,6 +6,8 @@ import { useState, useRef, useEffect } from "react"
 import { MessageCircle, X, Send, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 interface Message {
   id: string
@@ -200,11 +202,42 @@ export function ChatWidget() {
             {messages.map((message) => (
               <div key={message.id} className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  className={`max-w-[80%] p-3 ${
+                  className={`max-w-[80%] p-3 rounded-lg ${
                     message.sender === "user" ? "bg-primary text-white" : "bg-muted text-foreground"
                   }`}
                 >
-                  <p className="text-sm leading-relaxed">{message.text}</p>
+                  <div className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+                    {message.sender === "assistant" ? (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          // Custom styling for markdown elements
+                          h1: ({ node, ...props }) => <h1 className="text-lg font-bold mt-2 mb-1" {...props} />,
+                          h2: ({ node, ...props }) => <h2 className="text-base font-bold mt-2 mb-1" {...props} />,
+                          h3: ({ node, ...props }) => <h3 className="text-sm font-bold mt-1 mb-1" {...props} />,
+                          p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
+                          ul: ({ node, ...props }) => <ul className="list-disc list-inside mb-2 space-y-1" {...props} />,
+                          ol: ({ node, ...props }) => <ol className="list-decimal list-inside mb-2 space-y-1" {...props} />,
+                          li: ({ node, ...props }) => <li className="ml-2" {...props} />,
+                          code: ({ node, inline, ...props }: any) =>
+                            inline ? (
+                              <code className="bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded text-xs" {...props} />
+                            ) : (
+                              <code className="block bg-black/10 dark:bg-white/10 p-2 rounded text-xs my-2 overflow-x-auto" {...props} />
+                            ),
+                          blockquote: ({ node, ...props }) => (
+                            <blockquote className="border-l-2 border-foreground/20 pl-2 italic my-2" {...props} />
+                          ),
+                          strong: ({ node, ...props }) => <strong className="font-bold" {...props} />,
+                          em: ({ node, ...props }) => <em className="italic" {...props} />,
+                        }}
+                      >
+                        {message.text}
+                      </ReactMarkdown>
+                    ) : (
+                      <p>{message.text}</p>
+                    )}
+                  </div>
                   <p className="text-xs mt-1 opacity-70">
                     {message.timestamp.toLocaleTimeString([], {
                       hour: "2-digit",
