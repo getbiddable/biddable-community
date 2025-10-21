@@ -1,0 +1,144 @@
+# Campaign URL Routing Instructions
+
+## Overview
+Each campaign needs its own detail page accessible at `/campaigns/[campaign-id]` where `[campaign-id]` is the Supabase-assigned ID (bigint) from the campaigns table.
+
+## Current State
+- ✅ Campaigns table displays ID column (first column in table)
+- ✅ Campaign IDs are pulled from Supabase `campaigns.id` field
+- ✅ Main campaigns page exists at `/campaigns`
+- ✅ API endpoint exists at `/api/campaigns` (GET and POST)
+
+## What Needs to Be Built
+
+### 1. Dynamic Route Page
+**Create:** `app/campaigns/[id]/page.tsx`
+
+This will be the individual campaign detail page.
+
+**Required functionality:**
+- Extract campaign ID from URL params
+- Fetch campaign data from Supabase using the ID
+- Display campaign details (name, platforms, budget, dates, goal, etc.)
+- Handle loading states
+- Handle 404 if campaign doesn't exist or user doesn't have access
+- Include Navigation sidebar (see `app/campaigns/page.tsx` for layout pattern)
+
+**Example structure:**
+```typescript
+import { Navigation } from '@/components/navigation'
+import { CampaignDetailContent } from '@/components/campaign-detail-content'
+
+export default function CampaignDetailPage({ params }: { params: { id: string } }) {
+  return (
+    <div className="flex">
+      <Navigation />
+      <main className="flex-1">
+        <CampaignDetailContent campaignId={params.id} />
+      </main>
+    </div>
+  )
+}
+```
+
+### 2. API Endpoint for Single Campaign
+**Create:** `app/api/campaigns/[id]/route.ts`
+
+**GET endpoint:**
+- Accept campaign ID as parameter
+- Query Supabase: `SELECT * FROM campaigns WHERE id = [id] AND created_by = [user.id]`
+- Return campaign data or 404 if not found/not authorized
+- Ensure user can only access their own campaigns
+
+**Example:**
+```typescript
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  // Get authenticated user
+  // Query campaign by ID and created_by
+  // Return campaign data
+}
+```
+
+### 3. Component for Campaign Detail View
+**Create:** `components/campaign-detail-content.tsx`
+
+**Should display:**
+- Campaign header (name, ID, status badge)
+- Key metrics cards (budget, spent, collected, payment status)
+- Platform badges
+- Campaign dates (start/end)
+- Goal
+- Edit button (future functionality)
+- Delete button (future functionality)
+- Back to campaigns list link/button
+
+**Data fetching:**
+- Use `useEffect` to fetch from `/api/campaigns/[id]`
+- Handle loading state
+- Handle error states (not found, unauthorized)
+
+### 4. Make Campaign Names Clickable
+**Update:** `components/campaigns-content.tsx`
+
+In the table row, make the campaign name clickable:
+```typescript
+import Link from 'next/link'
+
+<TableCell className="font-medium">
+  <Link
+    href={`/campaigns/${campaign.id}`}
+    className="text-primary hover:underline"
+  >
+    {campaign.campaign_name}
+  </Link>
+</TableCell>
+```
+
+### 5. Update Middleware (if needed)
+The middleware already protects `/campaigns` and all sub-routes, so `/campaigns/[id]` should already be protected. No changes needed.
+
+## Database Schema Reference
+Campaign fields available from Supabase `campaigns` table:
+- `id` (bigint) - Primary key
+- `campaign_name` (text)
+- `created_at` (timestamp)
+- `created_by` (uuid) - Foreign key to auth.users
+- `platforms` (json) - Array of platform names
+- `status` (boolean) - true = active, false = inactive
+- `budget` (integer)
+- `start_date` (date)
+- `end_date` (date)
+- `goal` (text, nullable)
+- `stripe_payment_intent_id` (text, nullable)
+- `payment_status` (text) - default 'pending'
+- `amount_collected` (numeric)
+- `amount_spent` (numeric)
+- `media_fee_charged` (numeric)
+- `subscription_plan` (text) - default 'free'
+- `payment_date` (timestamp, nullable)
+
+## Security Notes
+- **IMPORTANT:** Always verify `created_by` matches the authenticated user's ID
+- Never allow users to access campaigns they didn't create
+- Use the existing pattern from `/api/campaigns/route.ts` for auth checks
+
+## Testing Checklist
+- [ ] Can access campaign detail page via `/campaigns/[id]` URL
+- [ ] Campaign data loads correctly
+- [ ] User can only view their own campaigns (test with different users)
+- [ ] 404 or error shown for non-existent campaign ID
+- [ ] 404 or error shown for campaigns belonging to other users
+- [ ] Clicking campaign name in table navigates to detail page
+- [ ] Navigation sidebar appears on detail page
+- [ ] Back navigation works properly
+
+## Future Enhancements (not required now)
+- Edit campaign functionality
+- Delete campaign functionality
+- Campaign performance metrics/analytics
+- Asset assignment to campaigns
+- Audience assignment to campaigns
+- Campaign duplication
