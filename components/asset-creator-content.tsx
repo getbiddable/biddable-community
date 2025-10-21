@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -11,49 +11,26 @@ import { Upload, ImageIcon, Video, FileText, Palette, Eye } from "lucide-react"
 import { TextAdForm } from "@/components/text-ad-form"
 import { GoogleSearchPreview } from "@/components/google-search-preview"
 import { TextAdData, AdFormat } from "@/lib/text-ads"
+import { useAuth } from "@/lib/auth-context"
 
 interface AdAsset {
   id: string
   name: string
   type: "image" | "video" | "text"
-  format: string
-  size: string
+  format: string | null
+  size: string | null
   status: "draft" | "approved" | "rejected"
-  createdAt: string
+  created_at: string
+  user_id: string
+  organization_id: string
+  ad_format?: string | null
+  ad_data?: any
 }
 
-const mockAssets: AdAsset[] = [
-  {
-    id: "1",
-    name: "Summer Sale Banner",
-    type: "image",
-    format: "JPG",
-    size: "1200x628",
-    status: "approved",
-    createdAt: "2024-01-15",
-  },
-  {
-    id: "2",
-    name: "Product Demo Video",
-    type: "video",
-    format: "MP4",
-    size: "1920x1080",
-    status: "draft",
-    createdAt: "2024-01-14",
-  },
-  {
-    id: "3",
-    name: "Brand Story Copy",
-    type: "text",
-    format: "TXT",
-    size: "250 chars",
-    status: "approved",
-    createdAt: "2024-01-13",
-  },
-]
-
 export function AssetCreatorContent() {
-  const [assets] = useState<AdAsset[]>(mockAssets)
+  const { user } = useAuth()
+  const [assets, setAssets] = useState<AdAsset[]>([])
+  const [loadingAssets, setLoadingAssets] = useState(false)
   const [activeTab, setActiveTab] = useState<"create" | "library">("create")
   const [assetType, setAssetType] = useState<"image" | "video" | "text">("image")
 
@@ -64,6 +41,30 @@ export function AssetCreatorContent() {
     paths: [],
   })
   const [textAdPreviewFormat, setTextAdPreviewFormat] = useState<AdFormat>("rsa")
+
+  // Fetch assets when library tab is opened
+  useEffect(() => {
+    if (activeTab === "library") {
+      fetchAssets()
+    }
+  }, [activeTab])
+
+  const fetchAssets = async () => {
+    setLoadingAssets(true)
+    try {
+      const response = await fetch("/api/assets")
+      if (response.ok) {
+        const data = await response.json()
+        setAssets(data.assets || [])
+      } else {
+        console.error("Failed to fetch assets")
+      }
+    } catch (error) {
+      console.error("Error fetching assets:", error)
+    } finally {
+      setLoadingAssets(false)
+    }
+  }
 
   const handleTextAdSubmit = async (data: TextAdData, format: AdFormat, name: string) => {
     try {
@@ -93,7 +94,10 @@ export function AssetCreatorContent() {
       console.log("Asset created successfully:", result.asset)
       alert(`Text ad "${name}" created successfully!`)
 
-      // Optionally refresh the asset list or clear the form
+      // Refresh the asset list if on library tab
+      if (activeTab === "library") {
+        fetchAssets()
+      }
     } catch (error) {
       console.error("Error submitting text ad:", error)
       alert("Failed to create text ad. Please try again.")
@@ -109,7 +113,7 @@ export function AssetCreatorContent() {
     <div className="p-8">
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Asset Creator</h1>
+          <h1 className="text-3xl font-bold text-foreground">Creative</h1>
           <p className="text-muted-foreground mt-1">Create and manage your ad assets</p>
         </div>
         <div className="flex space-x-2">
@@ -268,44 +272,75 @@ export function AssetCreatorContent() {
             <CardTitle className="text-foreground">Asset Library</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {assets.map((asset) => (
-                <Card key={asset.id} className="bg-background border-border">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-2">
-                        {asset.type === "image" && <ImageIcon className="h-4 w-4 text-muted-foreground" />}
-                        {asset.type === "video" && <Video className="h-4 w-4 text-muted-foreground" />}
-                        {asset.type === "text" && <FileText className="h-4 w-4 text-muted-foreground" />}
-                        <span className="text-sm font-medium text-foreground">{asset.name}</span>
-                      </div>
-                      <div
-                        className={`px-2 py-1 text-xs font-medium ${
-                          asset.status === "approved"
-                            ? "bg-primary text-white"
-                            : asset.status === "draft"
-                              ? "bg-yellow-500 text-black"
-                              : "bg-red-500 text-white"
-                        }`}
-                      >
-                        {asset.status}
-                      </div>
-                    </div>
-                    <div className="bg-muted h-32 mb-3 flex items-center justify-center">
-                      <span className="text-muted-foreground text-sm">
-                        {asset.format} • {asset.size}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs text-muted-foreground">
-                      <span>Created: {asset.createdAt}</span>
-                      <Button variant="outline" size="sm">
-                        Use Asset
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            {loadingAssets ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">Loading assets...</p>
+              </div>
+            ) : assets.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">No assets found. Create your first asset!</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Type</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Name</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Format</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Created</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Created By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assets.map((asset) => (
+                      <tr key={asset.id} className="border-b border-border hover:bg-muted/50 transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="flex items-center space-x-2">
+                            {asset.type === "image" && <ImageIcon className="h-4 w-4 text-muted-foreground" />}
+                            {asset.type === "video" && <Video className="h-4 w-4 text-muted-foreground" />}
+                            {asset.type === "text" && <FileText className="h-4 w-4 text-muted-foreground" />}
+                            <span className="text-sm capitalize">{asset.type}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="text-sm font-medium">{asset.name}</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="text-sm text-muted-foreground">
+                            {asset.ad_format ? asset.ad_format.toUpperCase() : asset.format || "N/A"}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2 py-1 text-xs font-medium rounded-full ${
+                              asset.status === "approved"
+                                ? "bg-green-500/10 text-green-500"
+                                : asset.status === "draft"
+                                  ? "bg-yellow-500/10 text-yellow-500"
+                                  : "bg-red-500/10 text-red-500"
+                            }`}
+                          >
+                            {asset.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="text-sm text-muted-foreground">
+                            {new Date(asset.created_at).toLocaleDateString()}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="text-sm text-muted-foreground font-mono">
+                            {asset.user_id ? `${asset.user_id.substring(0, 8)}...` : "N/A"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

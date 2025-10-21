@@ -147,3 +147,26 @@ Ready to test: Create a text ad and verify it saves to the assets table
 - Status messages: "Saving...", "Triggering AI...", "Generating...", "Ready!"
 - Need to create: AIImageForm component, generate-image API route, polling logic
 - Asset library will display all images with their URLs from database
+
+[2025-10-21] User Profile Page Implementation
+- Created profile page at /app/profile/page.tsx
+- Created ProfileContent component (components/profile-content.tsx)
+  - Displays user information (email, user ID)
+  - Shows all organizations user belongs to with roles
+  - Displays account status and creation date
+  - Empty state when user has no organizations
+- Created /api/profile API route
+  - Fetches user data from Supabase auth
+  - Queries organization_members table joined with organizations table
+  - Returns user's organizations with id, name, and role
+- Updated navigation component (components/navigation.tsx)
+  - Made user avatar/email clickable
+  - Links to /profile page
+  - Added hover state for better UX
+- Fixed .gitignore to exclude .next directory
+  - Added .next to .gitignore
+  - Removed .next from git tracking with git rm -r --cached
+- User organization membership confirmed working
+  - organization_members table is the source of truth for user-org relationships
+  - Table structure: user_id, organization_id, role
+  - Manual user addition to orgs done via INSERT into organization_members

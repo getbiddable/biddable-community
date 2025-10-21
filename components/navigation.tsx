@@ -10,7 +10,7 @@ import { Button } from "./ui/button"
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Asset Creator", href: "/assets", icon: ImageIcon },
+  { name: "Creative", href: "/assets", icon: ImageIcon },
   { name: "Reporting", href: "/reporting", icon: BarChart3 },
 ]
 
