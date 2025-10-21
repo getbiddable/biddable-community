@@ -5,29 +5,30 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Calendar, Target, DollarSign, TrendingUp, Users } from 'lucide-react'
+import { Plus, Calendar, Target, DollarSign, TrendingUp } from 'lucide-react'
 
 interface Campaign {
-  id: string
-  name: string
-  status: 'draft' | 'active' | 'paused' | 'completed'
-  platform: 'google' | 'facebook' | 'instagram' | 'linkedin' | 'tiktok'
-  start_date?: string
-  end_date?: string
-  goal_type?: string
-  budget: number
-  spend: number
-  impressions: number
-  clicks: number
-  conversions: number
-  target_audience_id?: string
+  id: number
+  campaign_name: string
   created_at: string
-  user_id: string
-  organization_id: string
+  created_by: string
+  platforms: string[]
+  status: boolean
+  budget: number
+  start_date: string
+  end_date: string
+  goal?: string
+  stripe_payment_intent_id?: string
+  payment_status: string
+  amount_collected: number
+  amount_spent: number
+  media_fee_charged: number
+  subscription_plan: string
+  payment_date?: string
 }
 
 export function CampaignsContent() {
@@ -36,9 +37,8 @@ export function CampaignsContent() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
-    platform: 'google',
-    status: 'draft',
-    goal_type: 'clicks',
+    platforms: [] as string[],
+    goal: '',
     budget: '',
     start_date: '',
     end_date: ''
@@ -62,16 +62,34 @@ export function CampaignsContent() {
     }
   }
 
+  const togglePlatform = (platform: string) => {
+    setFormData(prev => ({
+      ...prev,
+      platforms: prev.platforms.includes(platform)
+        ? prev.platforms.filter(p => p !== platform)
+        : [...prev.platforms, platform]
+    }))
+  }
+
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (formData.platforms.length === 0) {
+      alert('Please select at least one platform')
+      return
+    }
 
     try {
       const response = await fetch('/api/campaigns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...formData,
-          budget: parseFloat(formData.budget) || 0
+          name: formData.name,
+          platforms: formData.platforms,
+          goal: formData.goal || null,
+          budget: formData.budget,
+          start_date: formData.start_date,
+          end_date: formData.end_date
         })
       })
 
@@ -81,43 +99,47 @@ export function CampaignsContent() {
         setIsCreateDialogOpen(false)
         setFormData({
           name: '',
-          platform: 'google',
-          status: 'draft',
-          goal_type: 'clicks',
+          platforms: [],
+          goal: '',
           budget: '',
           start_date: '',
           end_date: ''
         })
+      } else {
+        const errorData = await response.json()
+        console.error('Error creating campaign:', errorData.error)
+        alert(`Error: ${errorData.error}`)
       }
     } catch (error) {
       console.error('Error creating campaign:', error)
+      alert('Failed to create campaign')
     }
   }
 
-  const getStatusBadge = (status: Campaign['status']) => {
-    const variants: Record<Campaign['status'], string> = {
-      active: 'bg-green-500/10 text-green-500 hover:bg-green-500/20',
-      paused: 'bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20',
-      draft: 'bg-gray-500/10 text-gray-500 hover:bg-gray-500/20',
-      completed: 'bg-blue-500/10 text-blue-500 hover:bg-blue-500/20'
+  const getStatusBadge = (status: boolean) => {
+    if (status) {
+      return <Badge className="bg-green-500/10 text-green-500 hover:bg-green-500/20">Active</Badge>
     }
-    return <Badge className={variants[status]}>{status}</Badge>
+    return <Badge className="bg-gray-500/10 text-gray-500 hover:bg-gray-500/20">Inactive</Badge>
   }
 
-  const getPlatformBadge = (platform: Campaign['platform']) => {
-    const colors: Record<Campaign['platform'], string> = {
+  const getPlatformBadges = (platforms: string[]) => {
+    const colors: Record<string, string> = {
       google: 'bg-blue-500/10 text-blue-500',
       facebook: 'bg-blue-600/10 text-blue-600',
       instagram: 'bg-pink-500/10 text-pink-500',
       linkedin: 'bg-blue-700/10 text-blue-700',
       tiktok: 'bg-black/10 text-white'
     }
-    return <Badge className={colors[platform]}>{platform}</Badge>
-  }
-
-  const calculateCTR = (clicks: number, impressions: number) => {
-    if (impressions === 0) return '0.00'
-    return ((clicks / impressions) * 100).toFixed(2)
+    return (
+      <div className="flex flex-wrap gap-1">
+        {platforms.map((platform, idx) => (
+          <Badge key={idx} className={colors[platform.toLowerCase()] || 'bg-gray-500/10 text-gray-500'}>
+            {platform}
+          </Badge>
+        ))}
+      </div>
+    )
   }
 
   const formatCurrency = (amount: number) => {
@@ -133,11 +155,9 @@ export function CampaignsContent() {
 
   // Calculate summary stats
   const totalBudget = campaigns.reduce((sum, c) => sum + c.budget, 0)
-  const totalSpend = campaigns.reduce((sum, c) => sum + c.spend, 0)
-  const totalImpressions = campaigns.reduce((sum, c) => sum + c.impressions, 0)
-  const totalClicks = campaigns.reduce((sum, c) => sum + c.clicks, 0)
-  const totalConversions = campaigns.reduce((sum, c) => sum + c.conversions, 0)
-  const activeCampaigns = campaigns.filter(c => c.status === 'active').length
+  const totalSpent = campaigns.reduce((sum, c) => sum + c.amount_spent, 0)
+  const totalCollected = campaigns.reduce((sum, c) => sum + c.amount_collected, 0)
+  const activeCampaigns = campaigns.filter(c => c.status === true).length
 
   if (loading) {
     return (
@@ -182,68 +202,45 @@ export function CampaignsContent() {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="platform">Platform</Label>
-                  <Select
-                    value={formData.platform}
-                    onValueChange={(value) => setFormData({ ...formData, platform: value })}
-                  >
-                    <SelectTrigger id="platform">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="google">Google Ads</SelectItem>
-                      <SelectItem value="facebook">Facebook</SelectItem>
-                      <SelectItem value="instagram">Instagram</SelectItem>
-                      <SelectItem value="linkedin">LinkedIn</SelectItem>
-                      <SelectItem value="tiktok">TikTok</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label>Platforms (select at least one)</Label>
+                  <div className="space-y-2">
+                    {['Google', 'Facebook', 'Instagram', 'LinkedIn', 'TikTok'].map((platform) => (
+                      <div key={platform} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={platform}
+                          checked={formData.platforms.includes(platform)}
+                          onCheckedChange={() => togglePlatform(platform)}
+                        />
+                        <label
+                          htmlFor={platform}
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                        >
+                          {platform}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="status">Status</Label>
-                    <Select
-                      value={formData.status}
-                      onValueChange={(value) => setFormData({ ...formData, status: value })}
-                    >
-                      <SelectTrigger id="status">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="draft">Draft</SelectItem>
-                        <SelectItem value="active">Active</SelectItem>
-                        <SelectItem value="paused">Paused</SelectItem>
-                        <SelectItem value="completed">Completed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="goal_type">Goal Type</Label>
-                    <Select
-                      value={formData.goal_type}
-                      onValueChange={(value) => setFormData({ ...formData, goal_type: value })}
-                    >
-                      <SelectTrigger id="goal_type">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="clicks">Clicks</SelectItem>
-                        <SelectItem value="impressions">Impressions</SelectItem>
-                        <SelectItem value="conversions">Conversions</SelectItem>
-                        <SelectItem value="engagement">Engagement</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="goal">Campaign Goal (optional)</Label>
+                  <Input
+                    id="goal"
+                    value={formData.goal}
+                    onChange={(e) => setFormData({ ...formData, goal: e.target.value })}
+                    placeholder="Increase brand awareness"
+                  />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="budget">Budget ($)</Label>
                   <Input
                     id="budget"
                     type="number"
-                    step="0.01"
+                    step="1"
+                    min="0"
                     value={formData.budget}
                     onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
-                    placeholder="1000.00"
+                    placeholder="1000"
+                    required
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -254,6 +251,7 @@ export function CampaignsContent() {
                       type="date"
                       value={formData.start_date}
                       onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                      required
                     />
                   </div>
                   <div className="grid gap-2">
@@ -263,6 +261,7 @@ export function CampaignsContent() {
                       type="date"
                       value={formData.end_date}
                       onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+                      required
                     />
                   </div>
                 </div>
@@ -300,19 +299,19 @@ export function CampaignsContent() {
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(totalBudget)}</div>
             <p className="text-xs text-muted-foreground">
-              {formatCurrency(totalSpend)} spent
+              {formatCurrency(totalSpent)} spent
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Impressions</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Collected</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatNumber(totalImpressions)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(totalCollected)}</div>
             <p className="text-xs text-muted-foreground">
-              {formatNumber(totalClicks)} clicks • {totalConversions} conversions
+              from {campaigns.length} campaign{campaigns.length !== 1 ? 's' : ''}
             </p>
           </CardContent>
         </Card>
@@ -346,39 +345,41 @@ export function CampaignsContent() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>ID</TableHead>
                   <TableHead>Name</TableHead>
-                  <TableHead>Platform</TableHead>
+                  <TableHead>Platforms</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Goal</TableHead>
                   <TableHead>Budget</TableHead>
-                  <TableHead>Spend</TableHead>
-                  <TableHead>Impressions</TableHead>
-                  <TableHead>Clicks</TableHead>
-                  <TableHead>CTR</TableHead>
-                  <TableHead>Conversions</TableHead>
+                  <TableHead>Spent</TableHead>
+                  <TableHead>Collected</TableHead>
+                  <TableHead>Payment Status</TableHead>
                   <TableHead>Dates</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {campaigns.map((campaign) => (
                   <TableRow key={campaign.id}>
-                    <TableCell className="font-medium">{campaign.name}</TableCell>
-                    <TableCell>{getPlatformBadge(campaign.platform)}</TableCell>
+                    <TableCell className="font-mono text-sm text-muted-foreground">{campaign.id}</TableCell>
+                    <TableCell className="font-medium">{campaign.campaign_name}</TableCell>
+                    <TableCell>{getPlatformBadges(campaign.platforms)}</TableCell>
                     <TableCell>{getStatusBadge(campaign.status)}</TableCell>
+                    <TableCell className="max-w-xs truncate">
+                      {campaign.goal || <span className="text-muted-foreground">—</span>}
+                    </TableCell>
                     <TableCell>{formatCurrency(campaign.budget)}</TableCell>
-                    <TableCell>{formatCurrency(campaign.spend)}</TableCell>
-                    <TableCell>{formatNumber(campaign.impressions)}</TableCell>
-                    <TableCell>{formatNumber(campaign.clicks)}</TableCell>
-                    <TableCell>{calculateCTR(campaign.clicks, campaign.impressions)}%</TableCell>
-                    <TableCell>{campaign.conversions}</TableCell>
+                    <TableCell>{formatCurrency(campaign.amount_spent)}</TableCell>
+                    <TableCell>{formatCurrency(campaign.amount_collected)}</TableCell>
+                    <TableCell>
+                      <Badge variant={campaign.payment_status === 'paid' ? 'default' : 'secondary'}>
+                        {campaign.payment_status}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {campaign.start_date && campaign.end_date ? (
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {new Date(campaign.start_date).toLocaleDateString()} - {new Date(campaign.end_date).toLocaleDateString()}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">Not set</span>
-                      )}
+                      <div className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        {new Date(campaign.start_date).toLocaleDateString()} - {new Date(campaign.end_date).toLocaleDateString()}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

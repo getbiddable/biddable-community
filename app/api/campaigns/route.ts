@@ -15,26 +15,12 @@ export async function POST(request: Request) {
       )
     }
 
-    // Get user's organization
-    const { data: orgData, error: orgError } = await supabase
-      .from('organization_members')
-      .select('organization_id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (orgError || !orgData) {
-      return NextResponse.json(
-        { error: 'Organization not found' },
-        { status: 404 }
-      )
-    }
-
     const body = await request.json()
-    const { name, status, platform, start_date, end_date, goal_type, budget, target_audience_id } = body
+    const { name, platforms, budget, start_date, end_date, goal } = body
 
-    if (!name || !platform) {
+    if (!name || !platforms || !budget || !start_date || !end_date) {
       return NextResponse.json(
-        { error: 'Name and platform are required' },
+        { error: 'Name, platforms, budget, start_date, and end_date are required' },
         { status: 400 }
       )
     }
@@ -43,20 +29,19 @@ export async function POST(request: Request) {
     const { data: campaign, error: insertError } = await supabase
       .from('campaigns')
       .insert({
-        organization_id: orgData.organization_id,
-        user_id: user.id,
-        name,
-        status: status || 'draft',
-        platform: platform || 'google',
+        campaign_name: name,
+        created_by: user.id,
+        platforms: Array.isArray(platforms) ? platforms : [platforms],
+        status: true, // active by default
+        budget: parseInt(budget),
         start_date,
         end_date,
-        goal_type,
-        budget: budget || 0,
-        spend: 0,
-        impressions: 0,
-        clicks: 0,
-        conversions: 0,
-        target_audience_id
+        goal: goal || null,
+        payment_status: 'pending',
+        amount_collected: 0,
+        amount_spent: 0,
+        media_fee_charged: 0,
+        subscription_plan: 'free'
       })
       .select()
       .single()
@@ -92,25 +77,11 @@ export async function GET(request: Request) {
       )
     }
 
-    // Get user's organization
-    const { data: orgData, error: orgError } = await supabase
-      .from('organization_members')
-      .select('organization_id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (orgError || !orgData) {
-      return NextResponse.json(
-        { error: 'Organization not found' },
-        { status: 404 }
-      )
-    }
-
-    // Get all campaigns for the organization
+    // Get all campaigns created by the user
     const { data: campaigns, error: campaignsError } = await supabase
       .from('campaigns')
       .select('*')
-      .eq('organization_id', orgData.organization_id)
+      .eq('created_by', user.id)
       .order('created_at', { ascending: false })
 
     if (campaignsError) {
