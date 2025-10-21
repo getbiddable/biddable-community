@@ -217,3 +217,29 @@ Ready to test: Create a text ad and verify it saves to the assets table
   - Public URLs generated and saved to database
   - Thumbnails display in Asset Library
   - Full images viewable via "View" button
+
+[2025-10-21] Chat Widget Markdown Rendering
+- Added markdown rendering support to chatbot
+  - Installed react-markdown (v9.0.1) and remark-gfm (v4.0.0)
+  - Updated package.json with new dependencies
+- Updated chat-widget.tsx (components/chat-widget.tsx)
+  - Assistant messages now render markdown properly
+  - User messages remain plain text
+  - Custom component styling for markdown elements:
+    - Headings (h1, h2, h3) with appropriate sizing
+    - Lists (ul, ol) with proper indentation
+    - Code blocks (inline and multi-line) with background styling
+    - Blockquotes with left border
+    - Bold and italic text
+  - Added rounded corners to message bubbles for better UX
+- Updated next.config.mjs
+  - Added transpilePackages for react-markdown and remark-gfm
+- Markdown features now supported:
+  - Headings, bold, italic, strikethrough
+  - Bullet and numbered lists
+  - Code blocks (inline and fenced)
+  - Blockquotes
+  - Links
+  - Tables (via GitHub Flavored Markdown)
+  - Task lists
+- Fully tested and working
