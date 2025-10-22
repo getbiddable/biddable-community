@@ -10,9 +10,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Users, TrendingUp, MapPin, Heart } from 'lucide-react'
+import Link from 'next/link'
 
 interface Audience {
-  id: string
+  id: number
   name: string
   description?: string
   targeting_criteria?: Record<string, any>
@@ -343,7 +344,14 @@ export function AudiencesContent() {
               <TableBody>
                 {audiences.map((audience) => (
                   <TableRow key={audience.id}>
-                    <TableCell className="font-medium">{audience.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <Link
+                        href={`/audiences/${audience.id}`}
+                        className="text-primary hover:underline"
+                      >
+                        {audience.name}
+                      </Link>
+                    </TableCell>
                     <TableCell className="max-w-xs truncate">
                       {audience.description || <span className="text-muted-foreground">—</span>}
                     </TableCell>

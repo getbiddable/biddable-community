@@ -277,3 +277,173 @@ Ready to test: Create a text ad and verify it saves to the assets table
   - URL structure: /campaigns/123
   - Organization-scoped access control via created_by field
   - Ready for future enhancements (edit, delete, analytics)
+
+[2025-10-21] Campaign-Asset Assignment System Implementation
+- Created campaign_assets junction table (supabase/migrations/create_campaign_assets_table.sql)
+  - Many-to-many relationship between campaigns and assets
+  - Allows one campaign to have multiple assets
+  - Allows one asset to be used in multiple campaigns
+  - Fields: id, campaign_id, asset_id, assigned_by, assigned_at
+  - Unique constraint prevents duplicate assignments
+  - Cascading deletes when campaign or asset is deleted
+  - RLS policies:
+    - Users can view assignments for campaigns they created
+    - Users can assign assets from their organization to their campaigns
+    - Users can unassign assets from their campaigns
+  - Indexes on campaign_id, asset_id, and assigned_by for performance
+- Created API endpoints at /api/campaigns/[id]/assets/route.ts
+  - GET: Fetch all assets assigned to a campaign
+    - Returns assets with full details via join
+    - Ordered by assigned_at (newest first)
+    - Validates user owns the campaign
+  - POST: Assign an asset to a campaign
+    - Validates campaign ownership
+    - Validates asset exists and is in user's organization
+    - Prevents duplicate assignments (409 error)
+    - Returns assignment record on success
+  - DELETE: Unassign an asset from a campaign
+    - Takes asset_id as query parameter
+    - Validates campaign ownership
+    - Removes assignment from junction table
+- Updated CampaignDetailContent component (components/campaign-detail-content.tsx)
+  - Added "Assigned Creative" section to campaign detail page
+  - Fetches assigned assets on page load
+  - Fetches all available assets from organization
+  - Asset assignment dialog:
+    - Shows all assets in organization
+    - Displays preview thumbnails for images
+    - Shows asset type, format, status
+    - "Already Assigned" badge for assets already in campaign
+    - Assign button for unassigned assets
+    - Loading state while assigning
+  - Assigned assets table:
+    - Shows preview thumbnails
+    - Displays name, type, format, status, assigned date
+    - Unassign button (X icon) to remove from campaign
+    - Empty state with call-to-action when no assets assigned
+  - Asset type icons (image, video, text) for non-image assets
+  - Confirmation dialog before unassigning
+- Campaign-asset relationship fully functional
+  - Users can assign creative from their organization to campaigns
+  - Users can unassign creative from campaigns
+  - Assets can be reused across multiple campaigns
+  - All operations protected by RLS and API validation
+  - Ready for testing with real data
+- Fixed asset_id type mismatch in SQL migration
+  - Changed asset_id from BIGINT to UUID to match assets table schema
+  - Updated TypeScript interfaces to use string for asset IDs
+  - Updated API routes to handle UUID asset IDs correctly
+  - SQL migration now runs without errors
+
+[2025-10-21] Audiences Feature Implementation
+- Created audiences table (supabase/migrations/create_audiences_table.sql)
+  - UUID primary key for audience records
+  - Organization-scoped audiences (organization_id)
+  - Demographic targeting: age_min, age_max, genders (array)
+  - Geographic targeting: locations (array)
+  - Interest & behavior targeting: interests (array), behaviors (array)
+  - JSONB targeting_criteria field for platform-specific targeting
+  - estimated_size field for audience size
+  - status field (active/archived)
+  - Auto-updating updated_at timestamp via trigger
+  - Age constraints (13-100, max >= min)
+  - RLS policies for organization-based access (SELECT, INSERT, UPDATE, DELETE)
+  - GIN indexes on arrays and JSONB for fast searching
+- Created campaign_audiences junction table (supabase/migrations/create_campaign_audiences_table.sql)
+  - Many-to-many relationship between campaigns and audiences
+  - Fields: id, campaign_id (BIGINT), audience_id (UUID), assigned_by, assigned_at
+  - Cascading deletes for data integrity
+  - RLS policies for campaign ownership and org membership
+  - Unique constraint prevents duplicate assignments
+- Created API endpoints at /api/audiences/[id]/route.ts
+  - GET: Fetch single audience by ID
+    - Validates organization membership
+    - Returns full audience data
+  - PUT: Update audience
+    - Validates organization membership
+    - Updates any provided fields
+    - Auto-updates updated_at timestamp
+  - DELETE: Archive audience (soft delete)
+    - Sets status to 'archived'
+    - Validates organization membership
+- Created AudienceDetailContent component (components/audience-detail-content.tsx)
+  - View/edit mode with inline editing
+  - Displays all audience targeting criteria
+  - Edit functionality for all fields (name, description, demographics, locations, interests, behaviors)
+  - Comma-separated input for arrays
+  - Real-time form validation
+  - Save/Cancel buttons
+  - Archive button with confirmation
+  - Key metrics cards (Estimated Size, Locations count, Interests count)
+  - Organized sections: Basic Info, Demographics, Geographic, Interest & Behavior
+  - Back navigation to audiences list
+- Created dynamic route page at /app/audiences/[id]/page.tsx
+  - Uses Next.js 14 dynamic routing with [id] parameter
+  - Same layout pattern (Navigation + content)
+- Made audience names clickable in audiences-content.tsx
+  - Links navigate to /audiences/[id]
+  - Styled with primary color and hover underline
+- Created API endpoints at /api/campaigns/[id]/audiences/route.ts
+  - GET: Fetch all audiences assigned to a campaign
+    - Returns audiences with full details via join
+    - Validates campaign ownership
+  - POST: Assign an audience to a campaign
+    - Validates campaign ownership and org membership
+    - Prevents duplicate assignments (409 error)
+  - DELETE: Unassign an audience from a campaign
+    - Takes audience_id as query parameter
+    - Validates campaign ownership
+- Updated CampaignDetailContent component with audience assignment
+  - Added "Assigned Audiences" section to campaign detail page
+  - Fetches assigned and available audiences on page load
+  - Audience assignment dialog:
+    - Shows all audiences in organization
+    - Displays age range, locations, interests, estimated size
+    - "Already Assigned" badge for assigned audiences
+    - Assign button with loading state
+  - Assigned audiences table:
+    - Clickable audience names (link to detail page)
+    - Shows description, age range, locations, interests, estimated size
+    - Assigned date
+    - Unassign button (X icon)
+    - Empty state with call-to-action
+  - formatNumber helper for displaying large numbers (K, M notation)
+- Full audiences workflow complete:
+  - Create audiences with targeting criteria
+  - View/edit audience details on dedicated pages
+  - Assign audiences to campaigns
+  - Unassign audiences from campaigns
+  - Audiences can be reused across multiple campaigns
+  - All operations protected by RLS and organization scoping
+- Documentation created: AUDIENCES_SETUP.md
+  - Complete setup guide with SQL migrations
+  - Field descriptions and constraints
+  - Array and JSONB usage examples
+  - API endpoint documentation
+  - Testing checklist
+  - Troubleshooting guide
+
+[2025-10-21] Convert Audience IDs from UUID to BIGINT (int8)
+- Reason: Consistency with campaigns table and better UX
+  - Long UUIDs in URLs are cumbersome to copy (must copy in segments)
+  - BIGINT IDs (like campaigns) can be copied with one double-click
+  - Power users of ad platforms expect simple numeric IDs
+- Created SQL migration: convert_audience_id_to_bigint.sql
+  - Drops and recreates audiences table with BIGSERIAL ID
+  - Drops and recreates campaign_audiences junction table with BIGINT audience_id
+  - Preserves all table structure, constraints, indexes, and RLS policies
+  - Note: Existing test data will be deleted (acceptable at this stage)
+- Updated all TypeScript interfaces to use number instead of string:
+  - components/audience-detail-content.tsx
+  - components/audiences-content.tsx
+  - components/campaign-detail-content.tsx (Audience and CampaignAudience interfaces)
+- Updated API routes to handle BIGINT IDs:
+  - app/api/audiences/[id]/route.ts (GET, PUT, DELETE)
+    - Added ID validation (isNaN check)
+  - app/api/campaigns/[id]/audiences/route.ts (POST, DELETE)
+    - Convert audience_id to Number() before database operations
+- All audience URLs now use simple numeric IDs: /audiences/123
+- IDs are now consistent across the platform:
+  - Campaigns: BIGINT
+  - Audiences: BIGINT
+  - Assets: UUID (appropriate for creative files)
