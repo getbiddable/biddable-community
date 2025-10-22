@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Calendar, Target, DollarSign, TrendingUp } from 'lucide-react'
+import Link from 'next/link'
 
 interface Campaign {
   id: number
@@ -361,7 +362,14 @@ export function CampaignsContent() {
                 {campaigns.map((campaign) => (
                   <TableRow key={campaign.id}>
                     <TableCell className="font-mono text-sm text-muted-foreground">{campaign.id}</TableCell>
-                    <TableCell className="font-medium">{campaign.campaign_name}</TableCell>
+                    <TableCell className="font-medium">
+                      <Link
+                        href={`/campaigns/${campaign.id}`}
+                        className="text-primary hover:underline"
+                      >
+                        {campaign.campaign_name}
+                      </Link>
+                    </TableCell>
                     <TableCell>{getPlatformBadges(campaign.platforms)}</TableCell>
                     <TableCell>{getStatusBadge(campaign.status)}</TableCell>
                     <TableCell className="max-w-xs truncate">
