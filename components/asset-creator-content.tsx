@@ -7,10 +7,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Upload, ImageIcon, Video, FileText, Palette, Eye } from "lucide-react"
+import { Upload, ImageIcon, Video, FileText, Palette, Eye, Sparkles } from "lucide-react"
 import { TextAdForm } from "@/components/text-ad-form"
 import { GoogleSearchPreview } from "@/components/google-search-preview"
 import { ImageUploadForm } from "@/components/image-upload-form"
+import { AIImageForm } from "@/components/ai-image-form"
 import { TextAdData, AdFormat } from "@/lib/text-ads"
 import { useAuth } from "@/lib/auth-context"
 
@@ -34,7 +35,7 @@ export function AssetCreatorContent() {
   const [assets, setAssets] = useState<AdAsset[]>([])
   const [loadingAssets, setLoadingAssets] = useState(false)
   const [activeTab, setActiveTab] = useState<"create" | "library">("create")
-  const [assetType, setAssetType] = useState<"image" | "video" | "text">("image")
+  const [assetType, setAssetType] = useState<"image" | "video" | "text" | "ai-generate">("image")
 
   // State for text ad preview
   const [textAdPreviewData, setTextAdPreviewData] = useState<TextAdData>({
@@ -146,8 +147,8 @@ export function AssetCreatorContent() {
             <CardContent className="space-y-6">
               <div>
                 <Label className="text-foreground">Asset Type</Label>
-                <div className="flex space-x-2 mt-2">
-                  {(["image", "video", "text"] as const).map((type) => (
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  {(["ai-generate", "image", "text", "video"] as const).map((type) => (
                     <Button
                       key={type}
                       variant={assetType === type ? "default" : "outline"}
@@ -156,14 +157,17 @@ export function AssetCreatorContent() {
                         assetType === type ? "bg-primary hover:bg-primary-hover text-white" : ""
                       }`}
                     >
+                      {type === "ai-generate" && <Sparkles className="h-4 w-4" />}
                       {type === "image" && <ImageIcon className="h-4 w-4" />}
                       {type === "video" && <Video className="h-4 w-4" />}
                       {type === "text" && <FileText className="h-4 w-4" />}
-                      <span className="capitalize">{type}</span>
+                      <span className="capitalize">{type === "ai-generate" ? "AI Generate" : type}</span>
                     </Button>
                   ))}
                 </div>
               </div>
+
+              {assetType === "ai-generate" && <AIImageForm onSuccess={fetchAssets} />}
 
               {assetType === "image" && <ImageUploadForm onSuccess={fetchAssets} />}
 
@@ -199,6 +203,50 @@ export function AssetCreatorContent() {
           {/* Preview Panel */}
           {assetType === "text" ? (
             <GoogleSearchPreview adData={textAdPreviewData} adFormat={textAdPreviewFormat} />
+          ) : assetType === "ai-generate" ? (
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-foreground flex items-center space-x-2">
+                  <Sparkles className="h-5 w-5" />
+                  <span>AI Generation Info</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="bg-background border border-border p-8 rounded-lg space-y-4">
+                  <div className="flex items-start space-x-3">
+                    <div className="bg-primary/10 p-2 rounded-lg">
+                      <Sparkles className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-foreground mb-2">How AI Image Generation Works</h3>
+                      <ul className="text-sm text-muted-foreground space-y-2">
+                        <li className="flex items-start">
+                          <span className="text-primary mr-2">1.</span>
+                          <span>Provide details about your product and brand</span>
+                        </li>
+                        <li className="flex items-start">
+                          <span className="text-primary mr-2">2.</span>
+                          <span>Our AI will analyze your requirements</span>
+                        </li>
+                        <li className="flex items-start">
+                          <span className="text-primary mr-2">3.</span>
+                          <span>Custom images will be generated and added to your asset library</span>
+                        </li>
+                        <li className="flex items-start">
+                          <span className="text-primary mr-2">4.</span>
+                          <span>You'll receive a notification when images are ready</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 mt-4">
+                    <p className="text-sm text-muted-foreground">
+                      <strong className="text-foreground">Tip:</strong> Be specific about your product features and brand style to get the best results.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           ) : (
             <Card className="bg-card border-border">
               <CardHeader>
