@@ -447,3 +447,69 @@ Ready to test: Create a text ad and verify it saves to the assets table
   - Campaigns: BIGINT
   - Audiences: BIGINT
   - Assets: UUID (appropriate for creative files)
+
+[2025-10-24] AI Image Generation Feature Implementation
+- Created AI-powered image generation system for creative assets
+- Workflow: User submits form → n8n generates image → Response with Supabase Storage location → Display image
+- Components and API routes created:
+  - Created components/ai-image-form.tsx
+    - Form with Product and Brand input fields
+    - Submits data to backend API
+    - Handles n8n response with image location
+    - Displays generated image with preview
+    - Shows success state with download and "Generate Another" buttons
+    - Error handling with user-friendly messages
+  - Created app/api/ai-generate/route.ts (proxy to avoid CORS)
+    - Proxies requests from frontend to n8n webhook
+    - Avoids CORS issues between localhost and n8n cloud
+    - Returns n8n response to frontend
+  - Updated components/asset-creator-content.tsx
+    - Added "AI Generate" as 4th asset type alongside Image, Video, Text
+    - 2x2 grid layout for asset type buttons
+    - Integrated AIImageForm component
+    - Custom preview panel explaining AI generation process
+    - Sparkles icon throughout for AI branding
+- n8n Integration:
+  - Webhook URL: https://biddable.app.n8n.cloud/webhook-test/7cca0f58-831a-46af-ab24-fbc86b01bbfc
+  - Request payload format: { Product, "Your Brand", submittedAt, formMode }
+  - Response format: { "folder/filename": "biddable-images/...", "Id": "..." }
+  - Handles both array and object response formats from n8n
+- Image Display and Storage:
+  - Parses n8n response to extract bucket name and filename
+  - Uses Supabase Storage getPublicUrl() to generate image URL
+  - Displays generated image inline with metadata
+  - Auto-creates asset record in database after generation
+- Asset Library Integration:
+  - AI-generated images automatically saved to assets table
+  - Asset name format: "AI Generated: {Product} - {Brand}"
+  - Type: "image", Format: "PNG", Size: "AI Generated"
+  - Includes file_url for thumbnail and full image display
+  - Updated app/api/assets/route.ts to accept file_url parameter
+  - Thumbnails and "View" buttons work correctly in Asset Library
+  - Assets can be assigned to campaigns like any manually uploaded image
+- CORS Issue Resolution:
+  - Initial implementation hit CORS error (n8n → localhost:3000)
+  - Solution: Created Next.js API proxy at /api/ai-generate
+  - Flow: Frontend → /api/ai-generate → n8n → response → frontend
+  - Server-to-server calls avoid CORS restrictions
+- Production Architecture Planning:
+  - Created comprehensive handoff document: AI_IMAGE_GENERATION_PRODUCTION.md
+  - Documented async/webhook callback architecture for production
+  - Includes database schema for ai_image_requests table
+  - Polling/WebSocket patterns for real-time status updates
+  - Rate limiting, cost tracking, security tokens
+  - Complete implementation guide (4-6 hour estimate)
+  - Current sync implementation works for testing but has limitations:
+    * Blocks for 30-60 seconds during generation
+    * Will timeout on serverless platforms (60s limit)
+    * No rate limiting or request tracking
+  - Production implementation deferred until ready for launch
+- Features working:
+  - User submits Product and Brand fields
+  - n8n generates image via OpenAI/other AI service
+  - n8n uploads to Supabase Storage and returns location
+  - Frontend displays generated image
+  - Asset automatically added to Asset Library
+  - Can assign to campaigns immediately
+- Testing successful with real AI image generation
+- Ready for testing phase, production architecture documented for future implementation

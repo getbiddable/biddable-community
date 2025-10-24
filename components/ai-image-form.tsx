@@ -70,13 +70,29 @@ export function AIImageForm({ onSuccess }: AIImageFormProps) {
 
       console.log("n8n response (parsed):", responseData)
 
-      // Expected format: [{ "Key": "biddable-images/2025-10-24T03:29:10.288Z", "Id": "485f73db-8cac-4061-bce6-cf9019254908" }]
-      if (responseData && Array.isArray(responseData) && responseData.length > 0 && responseData[0].Key && responseData[0].Id) {
+      // Handle different response formats
+      // Format 1: [{ "Key": "biddable-images/...", "Id": "..." }]
+      // Format 2: { "folder/filename": "biddable-images/...", "Id": "..." }
+      let imageData: { Key?: string; "folder/filename"?: string; Id: string } | null = null
+
+      if (Array.isArray(responseData) && responseData.length > 0 && responseData[0].Id) {
+        imageData = responseData[0]
+      } else if (responseData && responseData.Id && (responseData.Key || responseData["folder/filename"])) {
+        imageData = responseData
+      }
+
+      if (imageData && imageData.Id) {
         setLoadingImage(true)
 
-        const imageData = responseData[0]
-        // Extract bucket and filename from Key (format: "bucket/filename")
-        const keyParts = imageData.Key.split('/')
+        // Get the path (either from Key or folder/filename)
+        const path = imageData.Key || imageData["folder/filename"]
+
+        if (!path) {
+          throw new Error("No path found in response")
+        }
+
+        // Extract bucket and filename from path (format: "bucket/filename")
+        const keyParts = path.split('/')
         const bucketName = keyParts[0] // "biddable-images"
         const filename = keyParts.slice(1).join('/') // Everything after first slash
 
@@ -91,6 +107,31 @@ export function AIImageForm({ onSuccess }: AIImageFormProps) {
           .getPublicUrl(filename)
 
         console.log("Public URL:", publicUrl)
+
+        // Create asset record in database
+        try {
+          const assetResponse = await fetch("/api/assets", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              name: `AI Generated: ${product} - ${brand}`,
+              type: "image",
+              format: "PNG",
+              file_url: publicUrl,
+              size: "AI Generated",
+            }),
+          })
+
+          if (!assetResponse.ok) {
+            console.error("Failed to create asset record:", await assetResponse.text())
+          } else {
+            console.log("Asset record created successfully")
+          }
+        } catch (assetError) {
+          console.error("Error creating asset record:", assetError)
+        }
 
         setGeneratedImage({
           filename: filename,

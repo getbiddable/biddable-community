@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, type, ad_format, ad_data, format, size } = body
+    const { name, type, ad_format, ad_data, format, size, file_url } = body
 
     // Validate required fields
     if (!name || !type) {
@@ -56,6 +56,7 @@ export async function POST(request: NextRequest) {
         ad_data: ad_data || null,
         format: format || null,
         size: size || null,
+        file_url: file_url || null,
         status: "draft",
       })
       .select()
