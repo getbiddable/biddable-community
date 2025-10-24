@@ -98,13 +98,26 @@ Create a `.env.local` file in the root directory:
 cp .env.local.example .env.local
 ```
 
-Add your Supabase credentials:
+Add your Supabase credentials and AI generation settings:
 
 ```env
+# Supabase
 NEXT_PUBLIC_SUPABASE_URL=your-project-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET=myapp-bucket
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET=biddable-images
+
+# Application URLs
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# AI Image Generation (n8n)
+N8N_WEBHOOK_URL=your-n8n-webhook-url
+N8N_WEBHOOK_SECRET=generate-random-secret
+AI_CALLBACK_SECRET=generate-random-secret
+AI_GENERATION_RATE_LIMIT_PER_HOUR=100
 ```
+
+**Note**: Generate secrets with `openssl rand -base64 32`
 
 ### Step 4: Database Setup
 
@@ -194,6 +207,11 @@ CREATE POLICY "Users can create campaigns" ON campaigns
 # Run: supabase/migrations/create_campaign_assets_table.sql
 ```
 
+6. **AI Image Requests Table** (for async AI generation):
+```bash
+# Run: supabase/migrations/create_ai_image_requests_table.sql
+```
+
 ### Step 5: Supabase Storage Setup
 
 1. In Supabase Dashboard, go to **Storage**
@@ -277,14 +295,17 @@ Open [http://localhost:3000](http://localhost:3000) and log in with your test us
 - **Database**: `assets` table with UUID ID
 - **Types**:
   - **Images**: Upload to Supabase Storage, displays thumbnails
+  - **AI-Generated Images**: Async generation via n8n webhook with polling (no timeout issues)
   - **Text Ads**: Google Search Ads (RSA/ETA formats) with validation and preview
   - **Video**: Placeholder (not yet implemented)
 - **Features**:
   - Upload images with drag & drop
+  - AI image generation with real-time status updates (pending → processing → completed)
   - Create text ads with character limits
   - Preview how ads will appear
   - Assign to campaigns via junction table `campaign_assets`
   - Organization-scoped (shared within org)
+- **AI Generation Architecture**: Asynchronous with webhook callbacks - production-ready for Vercel deployment
 
 ### 4. Audiences
 
@@ -334,6 +355,7 @@ The app uses junction tables for flexible assignments:
 - `campaigns` - Campaign records (user-owned)
 - `assets` - Creative assets (org-scoped)
 - `audiences` - Target audiences (org-scoped)
+- `ai_image_requests` - Async AI image generation tracking (pending/processing/completed/failed)
 - `campaign_assets` - Junction table (campaign ↔ asset)
 - `campaign_audiences` - Junction table (campaign ↔ audience)
 
