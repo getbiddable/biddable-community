@@ -1,8 +1,10 @@
-# Biddable App
+# Biddable Community Edition
 
 ## Overview
 
-**Biddable** is an advertising platform for SMBs (Small and Medium Businesses) that allows users to manage advertising campaigns across multiple platforms. Users can create campaigns, upload creative assets, define target audiences, and assign both to campaigns for comprehensive ad management.
+**Biddable Community Edition** is an open-source advertising platform for SMBs (Small and Medium Businesses) that allows users to manage advertising campaigns across multiple platforms. Users can create campaigns, upload creative assets, define target audiences, and assign both to campaigns for comprehensive ad management.
+
+This is the community-driven version of Biddable, licensed under AGPL-3.0.
 
 ## Tech Stack
 
@@ -74,8 +76,8 @@ bid-app/
 
 ```bash
 # Clone the repository
-git clone <repository-url>
-cd bid-app
+git clone https://github.com/YOUR-USERNAME/biddable-community.git
+cd biddable-community
 
 # Install dependencies
 pnpm install
@@ -457,7 +459,19 @@ For questions about the codebase:
 
 ## License
 
-[Add your license information here before open-sourcing]
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+
+This means:
+- ✅ You can use, modify, and distribute this software freely
+- ✅ You can use it for commercial purposes
+- ⚠️ If you modify and deploy this software as a service, you must make your modifications available under AGPL-3.0
+- ⚠️ Any modifications must also be licensed under AGPL-3.0
+
+See the [LICENSE](LICENSE) file for full details.
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
 
 ---
 
