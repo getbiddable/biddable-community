@@ -76,7 +76,7 @@ bid-app/
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR-USERNAME/biddable-community.git
+git clone https://github.com/getbiddable/biddable-community.git
 cd biddable-community
 
 # Install dependencies
