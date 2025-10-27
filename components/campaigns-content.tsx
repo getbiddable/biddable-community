@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
@@ -127,10 +128,9 @@ export function CampaignsContent() {
   const getPlatformBadges = (platforms: string[]) => {
     const colors: Record<string, string> = {
       google: 'bg-blue-500/10 text-blue-500',
-      facebook: 'bg-blue-600/10 text-blue-600',
-      instagram: 'bg-pink-500/10 text-pink-500',
-      linkedin: 'bg-blue-700/10 text-blue-700',
-      tiktok: 'bg-black/10 text-white'
+      youtube: 'bg-red-500/10 text-red-500',
+      reddit: 'bg-orange-500/10 text-orange-500',
+      meta: 'bg-blue-600/10 text-blue-600'
     }
     return (
       <div className="flex flex-wrap gap-1">
@@ -205,7 +205,7 @@ export function CampaignsContent() {
                 <div className="grid gap-2">
                   <Label>Platforms (select at least one)</Label>
                   <div className="space-y-2">
-                    {['Google', 'Facebook', 'Instagram', 'LinkedIn', 'TikTok'].map((platform) => (
+                    {['Google', 'YouTube', 'Reddit', 'Meta'].map((platform) => (
                       <div key={platform} className="flex items-center space-x-2">
                         <Checkbox
                           id={platform}
@@ -224,12 +224,20 @@ export function CampaignsContent() {
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="goal">Campaign Goal (optional)</Label>
-                  <Input
-                    id="goal"
+                  <Select
                     value={formData.goal}
-                    onChange={(e) => setFormData({ ...formData, goal: e.target.value })}
-                    placeholder="Increase brand awareness"
-                  />
+                    onValueChange={(value) => setFormData({ ...formData, goal: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a goal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="clicks">Clicks</SelectItem>
+                      <SelectItem value="views">Views</SelectItem>
+                      <SelectItem value="leads">Leads</SelectItem>
+                      <SelectItem value="sales">Sales</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="budget">Budget ($)</Label>

@@ -79,12 +79,10 @@ const mockCampaigns: AdCampaign[] = [
 
 const platformNames: Record<string, string> = {
   meta: "Meta",
+  google: "Google",
   "google-search": "Google Search",
   youtube: "YouTube",
-  display: "Display",
   reddit: "Reddit",
-  linkedin: "LinkedIn",
-  tiktok: "TikTok",
 }
 
 const goalNames: Record<string, string> = {

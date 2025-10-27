@@ -34,12 +34,9 @@ interface CampaignModalProps {
 
 const platformOptions = [
   { value: "meta", label: "Meta (Facebook & Instagram)" },
-  { value: "google-search", label: "Google Search" },
+  { value: "google", label: "Google" },
   { value: "youtube", label: "YouTube" },
-  { value: "display", label: "Internet Display" },
   { value: "reddit", label: "Reddit" },
-  { value: "linkedin", label: "LinkedIn" },
-  { value: "tiktok", label: "TikTok" },
 ]
 
 const goalOptions = [

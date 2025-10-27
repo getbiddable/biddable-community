@@ -442,7 +442,7 @@ Before deploying:
 - Asset filtering and search
 - Audience analytics (which campaigns use which audiences)
 - Stripe payment integration for campaign budgets
-- Platform-specific ad preview (Facebook, LinkedIn, etc.)
+- Platform-specific ad preview (Google, YouTube, Reddit, Meta)
 - Campaign performance reporting with real metrics
 - Multi-language support
 - Mobile responsive improvements

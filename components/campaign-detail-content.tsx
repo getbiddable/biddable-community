@@ -295,10 +295,9 @@ export function CampaignDetailContent({ campaignId }: CampaignDetailContentProps
   const getPlatformBadges = (platforms: string[]) => {
     const colors: Record<string, string> = {
       google: 'bg-blue-500/10 text-blue-500',
-      facebook: 'bg-blue-600/10 text-blue-600',
-      instagram: 'bg-pink-500/10 text-pink-500',
-      linkedin: 'bg-blue-700/10 text-blue-700',
-      tiktok: 'bg-black/10 text-white'
+      youtube: 'bg-red-500/10 text-red-500',
+      reddit: 'bg-orange-500/10 text-orange-500',
+      meta: 'bg-blue-600/10 text-blue-600'
     }
     return (
       <div className="flex flex-wrap gap-2">
