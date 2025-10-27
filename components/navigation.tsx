@@ -13,7 +13,7 @@ const navigation = [
   { name: "Campaigns", href: "/campaigns", icon: Target },
   { name: "Audiences", href: "/audiences", icon: Users },
   { name: "Creative", href: "/assets", icon: ImageIcon },
-  { name: "Reporting", href: "/reporting", icon: BarChart3 },
+  { name: "Reporting", href: "/reporting", icon: BarChart3, disabled: true },
 ]
 
 export function Navigation() {
@@ -40,6 +40,22 @@ export function Navigation() {
       <ul className="space-y-2 flex-1">
         {navigation.map((item) => {
           const isActive = pathname === item.href
+          const isDisabled = item.disabled
+
+          if (isDisabled) {
+            return (
+              <li key={item.name}>
+                <div
+                  className="flex items-center px-4 py-3 text-sm font-medium text-muted-foreground/50 cursor-not-allowed"
+                >
+                  <item.icon className="mr-3 h-5 w-5" />
+                  <span className="flex-1">{item.name}</span>
+                  <span className="text-xs italic">Coming Soon</span>
+                </div>
+              </li>
+            )
+          }
+
           return (
             <li key={item.name}>
               <Link
