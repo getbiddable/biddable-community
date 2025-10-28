@@ -38,6 +38,7 @@ export function AssetCreatorContent() {
   const [loadingAssets, setLoadingAssets] = useState(false)
   const [activeTab, setActiveTab] = useState<"create" | "library">("create")
   const [assetType, setAssetType] = useState<"image" | "video" | "text" | "ai-generate" | "reddit">("image")
+  const [libraryFilter, setLibraryFilter] = useState<"all" | "ads" | "images">("all")
 
   // State for text ad preview
   const [textAdPreviewData, setTextAdPreviewData] = useState<TextAdData>({
@@ -126,6 +127,14 @@ export function AssetCreatorContent() {
   const handleRedditAdPreview = useCallback((data: RedditAdPreviewData) => {
     setRedditAdPreviewData(data)
   }, [])
+
+  // Filter assets based on library filter
+  const filteredAssets = assets.filter((asset) => {
+    if (libraryFilter === "all") return true
+    if (libraryFilter === "ads") return asset.type === "text" || asset.type === "reddit_ad"
+    if (libraryFilter === "images") return asset.type === "image" || asset.type === "video"
+    return true
+  })
 
   return (
     <div className="p-8">
@@ -302,16 +311,48 @@ export function AssetCreatorContent() {
       {activeTab === "library" && (
         <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-foreground">Asset Library</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-foreground">Asset Library</CardTitle>
+              <div className="flex space-x-2">
+                <Button
+                  variant={libraryFilter === "all" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setLibraryFilter("all")}
+                  className={libraryFilter === "all" ? "bg-primary hover:bg-primary-hover text-white" : ""}
+                >
+                  All
+                </Button>
+                <Button
+                  variant={libraryFilter === "ads" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setLibraryFilter("ads")}
+                  className={libraryFilter === "ads" ? "bg-primary hover:bg-primary-hover text-white" : ""}
+                >
+                  Ads
+                </Button>
+                <Button
+                  variant={libraryFilter === "images" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setLibraryFilter("images")}
+                  className={libraryFilter === "images" ? "bg-primary hover:bg-primary-hover text-white" : ""}
+                >
+                  Images
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {loadingAssets ? (
               <div className="text-center py-8">
                 <p className="text-muted-foreground">Loading assets...</p>
               </div>
-            ) : assets.length === 0 ? (
+            ) : filteredAssets.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-muted-foreground">No assets found. Create your first asset!</p>
+                <p className="text-muted-foreground">
+                  {assets.length === 0
+                    ? "No assets found. Create your first asset!"
+                    : `No ${libraryFilter === "ads" ? "ads" : "images"} found.`}
+                </p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -329,7 +370,7 @@ export function AssetCreatorContent() {
                     </tr>
                   </thead>
                   <tbody>
-                    {assets.map((asset) => (
+                    {filteredAssets.map((asset) => (
                       <tr key={asset.id} className="border-b border-border hover:bg-muted/50 transition-colors">
                         <td className="py-3 px-4">
                           {(asset.type === "image" || asset.type === "reddit_ad") && asset.file_url ? (
