@@ -513,3 +513,82 @@ Ready to test: Create a text ad and verify it saves to the assets table
   - Can assign to campaigns immediately
 - Testing successful with real AI image generation
 - Ready for testing phase, production architecture documented for future implementation
+
+[2025-10-28] Reddit Ad Creation Feature Implementation
+- Added complete Reddit ad creation functionality to assets module
+- Created components/reddit-ad-form.tsx
+  - Form with all Reddit ad fields: name, headline (300 char limit), CTA dropdown, destination URL, display URL
+  - Checkboxes: add source parameter, allow comments
+  - Image/video upload with drag & drop support
+  - Real-time preview updates via onPreview callback
+  - Character counter for headline (0/300)
+  - CTA options: Download, Install, Shop Now, View More, Sign Up, Learn More, Contact Us, Get Showtimes, Get a Quote
+  - Form validation and submission to /api/assets
+  - Initially included URL import feature, removed per user request
+- Created components/reddit-ad-preview.tsx
+  - Live preview component showing realistic Reddit mobile UI
+  - Updates in real-time as user types
+  - Displays: headline, image/video, CTA button, display URL
+  - Reddit post layout with vote/comment/share buttons
+  - Uses Reddit's brand color (#FF4500)
+  - Initially included bottom navigation bar, removed per user request
+- Updated components/asset-creator-content.tsx
+  - Added "reddit" to asset type options
+  - Added MessageSquare icon for Reddit button (Reddit orange color)
+  - Imported RedditAdForm and RedditAdPreview components
+  - Added Reddit ad preview state management with useCallback to prevent infinite loops
+  - Integrated Reddit form and preview into create asset layout
+  - Added library filter functionality (All/Ads/Images)
+  - Filter buttons in Asset Library header
+  - Smart filtering: "Ads" shows text+reddit_ad, "Images" shows image+video, "All" shows everything
+  - Updated empty state messages for filtered views
+  - Updated asset library table to display Reddit ads with proper icon and preview
+- Created database migration: supabase/migrations/add_reddit_ad_format.sql
+  - Updates assets_type_check constraint to include 'reddit_ad' type
+  - Updates assets_ad_format_check constraint to include 'reddit_promoted_post' format
+  - Allows NULL for ad_format (backward compatibility)
+  - User manually ran migration in Supabase dashboard (no SQL executed by Claude)
+- Cleaned up migrations folder per user request
+  - Deleted: convert_audience_id_to_bigint.sql, create_ai_image_requests_table.sql, create_audiences_table.sql, create_campaign_assets_table.sql, create_campaign_audiences_table.sql
+  - Only one migration file remains: add_reddit_ad_format.sql
+- Reddit Ad Data Structure:
+  - type: "reddit_ad"
+  - ad_format: "reddit_promoted_post"
+  - ad_data: { headline, callToAction, destinationUrl, displayUrl, addSourceParameter, allowComments, mediaUrl, mediaType }
+  - format: "REDDIT"
+  - size: "{headline.length} chars"
+  - file_url: Supabase storage URL for uploaded media
+- Debugging Issues Resolved:
+  - Issue 1: Infinite re-render loop
+    * Cause: Preview callback function recreated on every render
+    * Solution: Wrapped handleRedditAdPreview with useCallback in asset-creator-content.tsx
+  - Issue 2: Database constraint violation (ad_format)
+    * Error: "new row for relation 'assets' violates check constraint 'assets_ad_format_check'"
+    * Initial investigation thought it was ad_format field
+    * Created migration to add 'reddit_promoted_post' to allowed values
+  - Issue 3: Database constraint violation (type) - ROOT CAUSE
+    * Error: "new row for relation 'assets' violates check constraint 'assets_type_check'"
+    * Root cause: 'reddit_ad' not in allowed types
+    * Solution: Updated migration to fix BOTH constraints (type and ad_format)
+    * Fixed: Reddit ads now save successfully to database
+- Features Working:
+  - Reddit button appears in Create New Asset section
+  - Form loads with all required fields
+  - File upload via drag & drop and file picker
+  - Preview updates in real-time as user types
+  - Character counter for headline
+  - CTA dropdown with proper formatting (shop_now → "Shop Now")
+  - Form submission creates asset successfully
+  - Asset appears in library with Reddit icon and thumbnail
+  - Asset library filtering (All/Ads/Images) works correctly
+  - Image preview displays in library table
+  - Reddit ads can be assigned to campaigns like other assets
+- Asset Library Enhancement:
+  - Added filter buttons: All, Ads, Images
+  - "Ads" filter shows only complete multi-element ads (text ads & reddit ads)
+  - "Images" filter shows only media files (images & videos)
+  - "All" shows everything
+  - Filter buttons styled consistently with Create/Library tabs
+  - Active filter highlighted with primary color
+  - Contextual empty state messages based on active filter
+- Reddit ad creation feature fully functional and tested
