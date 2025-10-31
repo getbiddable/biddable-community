@@ -60,8 +60,10 @@ export function Navigation() {
             <li key={item.name}>
               <Link
                 href={item.href}
-                className={`flex items-center px-4 py-3 text-sm font-medium transition-colors ${
-                  isActive ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                className={`flex items-center px-4 py-3 text-sm font-medium transition-colors rounded-md ${
+                  isActive || pathname?.startsWith(item.href) && item.href !== "/"
+                    ? "bg-primary text-white"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
               >
                 <item.icon className="mr-3 h-5 w-5" />

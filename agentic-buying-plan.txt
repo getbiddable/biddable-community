@@ -1,0 +1,1539 @@
+================================================================================
+BIDDABLE AGENTIC BUYING SYSTEM - MASTER IMPLEMENTATION PLAN
+================================================================================
+
+PROJECT OVERVIEW
+================================================================================
+Mission: Enable AI agents to manage advertising campaigns through Biddable,
+        supporting both hosted agents on our platform and external agents via
+        FastMCP integration.
+
+Timeline: 3 weeks
+Start Date: TBD
+Target Completion: 21 days from start
+
+Key Constraints:
+- Agents update database only (no live ad placement)
+- $10,000/month ad spend limit per user
+- Must support both hosted agents AND external MCP clients
+- Backward compatible with existing UI/API
+
+
+ARCHITECTURE OVERVIEW
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         EXTERNAL AGENTS                                  │
+│  (Claude Desktop, AI assistants, automation tools)                       │
+└────────────────────────────┬────────────────────────────────────────────┘
+                             │ MCP Protocol
+┌────────────────────────────▼────────────────────────────────────────────┐
+│                      FASTMCP SERVER (Python)                             │
+│  - MCP tool definitions for all operations                              │
+│  - Schema validation                                                     │
+│  - Authentication wrapper                                                │
+│  - Error handling & retries                                              │
+└────────────────────────────┬────────────────────────────────────────────┘
+                             │ HTTP + API Key
+┌────────────────────────────▼────────────────────────────────────────────┐
+│                    AGENT API (Next.js)                                   │
+│  Route: /api/v1/agent/*                                                  │
+│  - RESTful endpoints                                                     │
+│  - OpenAPI/Swagger docs                                                  │
+│  - API key authentication                                                │
+│  - Rate limiting                                                         │
+│  - Audit logging                                                         │
+└────────────────────────────┬────────────────────────────────────────────┘
+                             │
+┌────────────────────────────▼────────────────────────────────────────────┐
+│                    EXISTING SUPABASE BACKEND                             │
+│  - PostgreSQL database                                                   │
+│  - RLS policies                                                          │
+│  - Storage (images)                                                      │
+│  - Auth (users, orgs)                                                    │
+└──────────────────────────────────────────────────────────────────────────┘
+
+                             ▲
+                             │ Also used by
+┌────────────────────────────┴────────────────────────────────────────────┐
+│                    HOSTED AGENT (In-App)                                 │
+│  - Chat interface (upgrade existing chatbot)                             │
+│  - Uses same FastMCP server                                              │
+│  - Embedded in Biddable UI                                               │
+└──────────────────────────────────────────────────────────────────────────┘
+
+
+WEEK 1: CORE AGENT API (Next.js) ✅ COMPLETE
+================================================================================
+
+GOAL: Build RESTful API that exposes all campaign/asset/audience operations
+      to agents via HTTP endpoints with API key authentication.
+
+STATUS: ✅ COMPLETED October 31, 2025
+IMPLEMENTATION NOTES:
+  - RLS Issue Discovered: Using createClient() from @/lib/supabase/server blocked
+    agent API operations because it requires authenticated session, but API key
+    validation happens separately
+  - Solution: All agent endpoints use service role key (SUPABASE_SERVICE_ROLE_KEY)
+    to bypass RLS, with organization-scoping implemented in application code
+  - Organization filtering: Campaigns use created_by (user UUID), not org_id.
+    Implemented two-step query: fetch org users → filter campaigns by those users
+  - Endpoint structure modified: Combined assign/unassign into RESTful routes
+    (POST/DELETE to /campaigns/[id]/assets instead of separate /assign-asset routes)
+  - API key management placed in /profile page instead of /settings per user request
+  - All 13 endpoints tested and operational with real API key
+
+Day 1-2: Database Schema & API Key System ✅ COMPLETE
+────────────────────────────────────────────────────────────────────────────
+✅ Create api_keys table in Supabase
+  Location: supabase/migrations/create_api_keys_table.sql
+
+  Schema:
+  ```sql
+  CREATE TABLE api_keys (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    key_hash TEXT NOT NULL UNIQUE, -- bcrypt hash of the API key
+    key_prefix TEXT NOT NULL, -- First 8 chars for display (e.g., "bbl_1234...")
+    name TEXT NOT NULL, -- Human-readable name (e.g., "Claude Desktop Agent")
+    description TEXT,
+    permissions JSONB DEFAULT '{}', -- Scoped permissions
+    created_by UUID NOT NULL REFERENCES auth.users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_used_at TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    is_active BOOLEAN DEFAULT true,
+    metadata JSONB DEFAULT '{}' -- Rate limit overrides, etc.
+  );
+
+  -- RLS policies
+  ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+
+  CREATE POLICY "Users can view their org's API keys" ON api_keys
+    FOR SELECT USING (
+      organization_id IN (
+        SELECT organization_id FROM organization_members
+        WHERE user_id = auth.uid()
+      )
+    );
+
+  CREATE POLICY "Users can create API keys for their org" ON api_keys
+    FOR INSERT WITH CHECK (
+      organization_id IN (
+        SELECT organization_id FROM organization_members
+        WHERE user_id = auth.uid()
+      )
+    );
+
+  CREATE POLICY "Users can update their org's API keys" ON api_keys
+    FOR UPDATE USING (
+      organization_id IN (
+        SELECT organization_id FROM organization_members
+        WHERE user_id = auth.uid()
+      )
+    );
+
+  CREATE POLICY "Users can delete their org's API keys" ON api_keys
+    FOR DELETE USING (
+      organization_id IN (
+        SELECT organization_id FROM organization_members
+        WHERE user_id = auth.uid()
+      )
+    );
+
+  CREATE INDEX idx_api_keys_org ON api_keys(organization_id);
+  CREATE INDEX idx_api_keys_hash ON api_keys(key_hash);
+  CREATE INDEX idx_api_keys_active ON api_keys(is_active) WHERE is_active = true;
+  ```
+  FILE: supabase/migrations/create_api_keys_table.sql
+  STATUS: ✅ Created and migrated successfully
+
+✅ Create agent_audit_log table for tracking all agent actions
+  Location: supabase/migrations/create_agent_audit_log_table.sql
+
+  Schema:
+  ```sql
+  CREATE TABLE agent_audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    api_key_id UUID NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    action TEXT NOT NULL, -- e.g., "campaigns.create", "assets.upload"
+    resource_type TEXT, -- e.g., "campaign", "asset", "audience"
+    resource_id TEXT, -- ID of the resource affected
+    request_method TEXT, -- GET, POST, PUT, DELETE
+    request_path TEXT, -- /api/v1/agent/campaigns/create
+    request_body JSONB, -- Full request payload
+    response_status INTEGER, -- HTTP status code
+    response_body JSONB, -- Response data
+    error_message TEXT, -- If request failed
+    ip_address TEXT,
+    user_agent TEXT,
+    duration_ms INTEGER, -- Request duration
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  );
+
+  -- RLS policies
+  ALTER TABLE agent_audit_log ENABLE ROW LEVEL SECURITY;
+
+  CREATE POLICY "Users can view their org's audit logs" ON agent_audit_log
+    FOR SELECT USING (
+      organization_id IN (
+        SELECT organization_id FROM organization_members
+        WHERE user_id = auth.uid()
+      )
+    );
+
+  -- Indexes for efficient querying
+  CREATE INDEX idx_audit_log_api_key ON agent_audit_log(api_key_id);
+  CREATE INDEX idx_audit_log_org ON agent_audit_log(organization_id);
+  CREATE INDEX idx_audit_log_action ON agent_audit_log(action);
+  CREATE INDEX idx_audit_log_created_at ON agent_audit_log(created_at DESC);
+  CREATE INDEX idx_audit_log_resource ON agent_audit_log(resource_type, resource_id);
+  ```
+  FILE: supabase/migrations/create_agent_audit_log_table.sql
+  STATUS: ✅ Created and migrated successfully
+
+✅ Create API key generation utility
+  Location: lib/agent-api-keys.ts
+
+  Functions implemented:
+  ✅ generateApiKey(): Generate random key with "bbl_" prefix (32 chars)
+  ✅ hashApiKey(key: string): Hash key with bcrypt (10 salt rounds)
+  ✅ verifyApiKey(key: string, hash: string): Verify key against hash
+  ✅ createApiKey(params): Create new key with org scoping
+  ✅ validateApiKey(key: string): Validate and update last_used_at
+  ✅ revokeApiKey(key_id): Deactivate key
+  ✅ deleteApiKey(key_id): Permanently delete key
+  ✅ listApiKeys(org_id): Get all keys for org
+  ✅ updateApiKey(key_id, updates): Update key metadata
+
+  FILE: lib/agent-api-keys.ts
+  STATUS: ✅ Complete with bcrypt hashing and service role key for validation
+  CRITICAL FIX: validateApiKey() now uses service role key to bypass RLS
+
+✅ Create API key management UI
+  Location: components/profile-content.tsx (integrated into profile page)
+
+  NOTE: Moved from /settings/api-keys to /profile per user request
+  Reason: API keys are organization-wide, all org members can manage them
+
+  Features implemented:
+  ✅ List all API keys for organization
+  ✅ Create new API key (show once, then hide)
+  ✅ Revoke/delete keys with confirmation dialogs
+  ✅ View last used timestamp
+  ✅ Copy key to clipboard
+  ✅ Organization-wide messaging (notice banner)
+  ✅ Status badges (Active/Revoked)
+  ✅ Key prefix display (bbl_1234...)
+  ✅ Empty state with call-to-action
+
+  API Routes created:
+  ✅ GET /api/settings/api-keys - List all keys
+  ✅ POST /api/settings/api-keys - Create new key
+  ✅ PATCH /api/settings/api-keys/[id] - Update key
+  ✅ DELETE /api/settings/api-keys/[id] - Delete key
+  ✅ POST /api/settings/api-keys/[id]/revoke - Revoke key
+
+
+Day 3-4: Agent API - Campaign Operations ✅ COMPLETE
+────────────────────────────────────────────────────────────────────────────
+✅ Create agent API middleware for authentication
+  Location: lib/agent-api-middleware.ts
+
+  Features implemented:
+  ✅ Extract "Authorization: Bearer <key>" header
+  ✅ Validate API key against database
+  ✅ Load organization context
+  ✅ Check key expiration
+  ✅ Update last_used_at timestamp
+  ⏸ Rate limiting check (deferred to Week 2)
+  ✅ Attach org/key context to request (AgentAuthContext)
+  ✅ Standard error response format
+  ✅ Request ID generation (generateRequestId)
+  ✅ Response header helper (addAgentApiHeaders)
+
+  FILE: lib/agent-api-middleware.ts
+  STATUS: ✅ Complete and tested
+
+✅ Create campaign endpoints
+  ✅ app/api/v1/agent/campaigns/list/route.ts
+    - GET /api/v1/agent/campaigns/list
+    - Query params: ?limit=50&offset=0&status=active
+    - Returns: Array of campaigns for organization
+    - TESTED: Retrieved 8 campaigns with pagination
+    - NOTE: Two-step query (get org users → filter campaigns by created_by)
+
+  ✅ app/api/v1/agent/campaigns/create/route.ts
+    - POST /api/v1/agent/campaigns/create
+    - Body: { name, platforms[], budget, start_date, end_date, goal? }
+    - Validation: Budget 1-10000 (per-campaign limit)
+    - Validation: end_date must be after start_date
+    - Uses Zod schema for validation
+    - Returns: Created campaign object
+    - TESTED: Created campaign #27 and #28 successfully
+
+  ✅ app/api/v1/agent/campaigns/[id]/get/route.ts
+    - GET /api/v1/agent/campaigns/[id]/get
+    - Returns: Full campaign details with assigned assets/audiences
+    - Includes nested data via Supabase joins
+    - TESTED: Retrieved campaign #28 with full details
+
+  ✅ app/api/v1/agent/campaigns/[id]/update/route.ts
+    - PATCH /api/v1/agent/campaigns/[id]/update
+    - Body: Partial campaign object (all fields optional)
+    - Validation: Date range validation if both provided
+    - ⏸ Budget limit validation deferred to Week 2
+    - Returns: Updated campaign
+    - TESTED: Updated campaign #27 name and budget
+
+  ✅ app/api/v1/agent/campaigns/[id]/delete/route.ts
+    - DELETE /api/v1/agent/campaigns/[id]/delete
+    - Cascade deletes campaign_assets and campaign_audiences
+    - Returns: Success confirmation with campaign details
+    - TESTED: Deleted campaign #27, verified with 404
+
+  NOTE: Asset/Audience assignment moved to Day 5-7 (see below)
+  STRUCTURE CHANGED: Combined into RESTful routes instead of separate endpoints
+
+
+Day 5-6: Agent API - Asset Operations ✅ COMPLETE (Partial)
+────────────────────────────────────────────────────────────────────────────
+NOTE: Focused on assignment operations for Week 1. Asset creation endpoints
+      deferred to Week 2 or as needed.
+
+✅ Create asset endpoints (list and assignment)
+  ✅ app/api/v1/agent/assets/list/route.ts
+    - GET /api/v1/agent/assets/list
+    - Query params: ?type=image&limit=50&offset=0
+    - Returns: Array of assets for organization with pagination
+    - TESTED: Retrieved 12 assets (5 shown with limit=5)
+
+  ✅ app/api/v1/agent/campaigns/[id]/assets/route.ts (NEW STRUCTURE)
+    - GET - List assets assigned to campaign
+    - POST - Assign asset to campaign (body: { asset_id })
+    - DELETE - Unassign asset (query: ?asset_id=<uuid>)
+    - Organization validation via campaign ownership
+    - Duplicate detection (409 if already assigned)
+    - TESTED: All operations successful on campaign #28
+
+  ⏸ app/api/v1/agent/assets/create-text-ad/route.ts (Deferred)
+  - POST /api/v1/agent/assets/create-text-ad
+  - Body: { name, ad_format, ad_data: { headlines[], descriptions[], paths[] } }
+  - Validation: Use existing lib/text-ads.ts validators
+  - Returns: Created text ad asset
+
+  Location: app/api/v1/agent/assets/create-reddit-ad/route.ts
+  - POST /api/v1/agent/assets/create-reddit-ad
+  - Body: { name, headline, callToAction, destinationUrl, displayUrl?, imageUrl }
+  - Validation: Headline <= 300 chars, valid URL
+  - Returns: Created Reddit ad asset
+
+  Location: app/api/v1/agent/assets/upload-image/route.ts
+  - POST /api/v1/agent/assets/upload-image (multipart/form-data)
+  - Body: FormData with file and name
+  - Uses existing upload logic from app/api/assets/upload-image/route.ts
+  - Returns: Created image asset with file_url
+
+  Location: app/api/v1/agent/assets/generate-ai-image/route.ts
+  - POST /api/v1/agent/assets/generate-ai-image
+  - Body: { name, product, brand }
+  - Async operation - returns request_id for polling
+  - Returns: { request_id, status: "pending" }
+
+  Location: app/api/v1/agent/assets/ai-status/[request_id]/route.ts
+  - GET /api/v1/agent/assets/ai-status/[request_id]
+  - Returns: { status: "pending|processing|completed|failed", asset_id?, file_url? }
+
+  Location: app/api/v1/agent/assets/[id]/get/route.ts
+  - GET /api/v1/agent/assets/[id]/get
+  - Returns: Full asset details
+
+  Location: app/api/v1/agent/assets/[id]/delete/route.ts
+  - DELETE /api/v1/agent/assets/[id]/delete
+  - Returns: Success confirmation
+
+
+Day 7: Agent API - Audience Operations ✅ COMPLETE (Partial)
+────────────────────────────────────────────────────────────────────────────
+NOTE: Focused on assignment operations for Week 1. Audience creation/update
+      endpoints can be added in Week 2 or as needed.
+
+✅ Create audience endpoints (list and assignment)
+  ✅ app/api/v1/agent/audiences/list/route.ts
+    - GET /api/v1/agent/audiences/list
+    - Query params: ?status=active&limit=50&offset=0
+    - Returns: Array of audiences for organization with pagination
+    - TESTED: Retrieved 1 audience
+
+  ✅ app/api/v1/agent/campaigns/[id]/audiences/route.ts (NEW STRUCTURE)
+    - GET - List audiences assigned to campaign
+    - POST - Assign audience to campaign (body: { audience_id })
+    - DELETE - Unassign audience (query: ?audience_id=<number>)
+    - Audience ID validation (must be number, BIGINT not UUID)
+    - Organization validation via campaign ownership
+    - Duplicate detection (409 if already assigned)
+    - TESTED: All operations successful on campaign #28
+
+  ⏸ app/api/v1/agent/audiences/create/route.ts (Deferred)
+  - POST /api/v1/agent/audiences/create
+  - Body: { name, description?, age_min?, age_max?, genders[], locations[], interests[], behaviors[] }
+  - Validation: Age range 13-100, age_min <= age_max
+  - Returns: Created audience
+
+  Location: app/api/v1/agent/audiences/[id]/get/route.ts
+  - GET /api/v1/agent/audiences/[id]/get
+  - Returns: Full audience details
+
+  Location: app/api/v1/agent/audiences/[id]/update/route.ts
+  - PATCH /api/v1/agent/audiences/[id]/update
+  - Body: Partial audience object
+  - Returns: Updated audience
+
+  Location: app/api/v1/agent/audiences/[id]/delete/route.ts
+  - DELETE /api/v1/agent/audiences/[id]/delete (soft delete - sets status='archived')
+  - Returns: Success confirmation
+
+
+WEEK 1 DELIVERABLES: ✅ COMPLETE
+────────────────────────────────────────────────────────────────────────────
+✅ Database tables: api_keys, agent_audit_log (both migrated successfully)
+✅ API key generation & management system (bcrypt hashing, validation)
+✅ Agent API with 13 operational endpoints:
+   • 5 Campaign CRUD endpoints (list, create, get, update, delete)
+   • 2 Asset endpoints (list, assignments)
+   • 2 Audience endpoints (list, assignments)
+   • 4 Assignment endpoints (assets & audiences assign/unassign)
+✅ API key management UI in /profile (organization-wide)
+✅ Authentication & authorization (Bearer token, org-scoping)
+✅ Service role key architecture (RLS bypass with app-level security)
+✅ Standard error responses with request ID tracking
+✅ Pagination support on all list endpoints
+✅ Comprehensive testing with real API key (bbl_GJMRw4w6NHyUUfeDNhdv75zYeikhhpc6)
+✅ Testing guide created (AGENT_API_TEST_GUIDE.md)
+
+DEFERRED TO WEEK 2+:
+⏸ Asset creation endpoints (create-text-ad, create-reddit-ad, upload-image, generate-ai-image)
+⏸ Audience creation/update endpoints
+⏸ Rate limiting
+⏸ Budget validation enforcement
+
+
+WEEK 2: SECURITY, VALIDATION & MONITORING
+================================================================================
+
+GOAL: Harden the API with rate limiting, budget controls, validation,
+      comprehensive logging, and monitoring dashboards.
+
+Day 8-9: Rate Limiting & Budget Controls
+────────────────────────────────────────────────────────────────────────────
+□ Implement rate limiting system
+  Location: lib/agent-rate-limiter.ts
+
+  Strategy: Token bucket algorithm with Redis or in-memory cache
+
+  Limits:
+  - Global: 1000 requests/hour per API key
+  - Campaign creation: 10/hour
+  - Asset creation: 50/hour
+  - AI image generation: 10/hour (expensive operation)
+  - List operations: 200/hour
+
+  Features:
+  - Per-endpoint rate limits
+  - Per-API-key tracking
+  - Custom limits via api_keys.metadata field
+  - 429 Too Many Requests response with Retry-After header
+
+  Headers to include in responses:
+  - X-RateLimit-Limit: Total requests allowed
+  - X-RateLimit-Remaining: Requests remaining
+  - X-RateLimit-Reset: Timestamp when limit resets
+
+□ Implement budget validation system
+  Location: lib/agent-budget-validator.ts
+
+  Rules:
+  - Maximum $10,000/month per organization
+  - Track total budget across all campaigns
+  - Check on campaign creation
+  - Check on campaign budget updates
+  - Consider start_date and end_date for monthly calculation
+
+  Functions:
+  - calculateMonthlyBudget(org_id, year, month): Sum of all campaign budgets
+  - validateCampaignBudget(org_id, new_budget, campaign_id?): Check if within limit
+  - getRemainingBudget(org_id, year, month): Calculate available budget
+
+  Error responses:
+  - 400 Bad Request: "Budget exceeds monthly limit of $10,000"
+  - Include: current_monthly_total, requested_amount, available_budget
+
+□ Create budget monitoring
+  Location: app/api/v1/agent/budget/status/route.ts
+  - GET /api/v1/agent/budget/status
+  - Query params: ?year=2025&month=10
+  - Returns: {
+      monthly_limit: 10000,
+      monthly_total: 5500,
+      remaining: 4500,
+      campaigns: [ { id, name, budget, start_date, end_date } ]
+    }
+
+
+Day 10-11: Input Validation & Error Handling
+────────────────────────────────────────────────────────────────────────────
+□ Create comprehensive validation schemas
+  Location: lib/agent-api-schemas.ts
+
+  Use Zod for all schemas:
+  - CampaignCreateSchema
+  - CampaignUpdateSchema
+  - TextAdCreateSchema
+  - RedditAdCreateSchema
+  - AudienceCreateSchema
+  - AudienceUpdateSchema
+
+  Example:
+  ```typescript
+  import { z } from 'zod'
+
+  export const CampaignCreateSchema = z.object({
+    name: z.string().min(1).max(100),
+    platforms: z.array(z.enum(['google', 'youtube', 'reddit', 'meta'])).min(1),
+    budget: z.number().int().min(1).max(10000),
+    start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    goal: z.string().max(500).optional()
+  }).refine(data => new Date(data.start_date) < new Date(data.end_date), {
+    message: "end_date must be after start_date"
+  })
+  ```
+
+□ Standardize error responses
+  Location: lib/agent-api-errors.ts
+
+  Error response format:
+  ```json
+  {
+    "success": false,
+    "error": {
+      "code": "BUDGET_EXCEEDED",
+      "message": "Campaign budget exceeds monthly limit",
+      "details": {
+        "monthly_limit": 10000,
+        "current_total": 8000,
+        "requested": 3000,
+        "available": 2000
+      },
+      "timestamp": "2025-10-30T12:34:56Z",
+      "request_id": "req_abc123"
+    }
+  }
+  ```
+
+  Error codes:
+  - UNAUTHORIZED: Invalid or missing API key
+  - FORBIDDEN: Insufficient permissions
+  - BUDGET_EXCEEDED: Monthly budget limit exceeded
+  - RATE_LIMIT_EXCEEDED: Too many requests
+  - VALIDATION_ERROR: Invalid input data
+  - RESOURCE_NOT_FOUND: Campaign/asset/audience not found
+  - DUPLICATE_RESOURCE: Resource already exists
+  - INTERNAL_ERROR: Server error
+
+□ Add request ID tracking
+  - Generate unique ID for each request
+  - Include in all log entries
+  - Return in response headers: X-Request-ID
+  - Include in error responses
+
+
+Day 12-13: Audit Logging & Analytics
+────────────────────────────────────────────────────────────────────────────
+□ Implement comprehensive audit logging
+  Location: lib/agent-audit-logger.ts
+
+  Log all agent actions to agent_audit_log table:
+  - Request start time
+  - API key used
+  - Action performed
+  - Resource affected
+  - Request/response payloads
+  - Duration
+  - Success/failure
+  - Error messages
+
+  Features:
+  - Async logging (don't block responses)
+  - Sanitize sensitive data (API keys, passwords)
+  - Structured logging with JSON
+  - Request/response size limits (truncate large payloads)
+
+□ Create audit log viewer UI
+  Location: app/settings/agent-logs/page.tsx
+  Location: components/agent-logs-viewer.tsx
+
+  Features:
+  - Table view of all agent actions
+  - Filters: date range, API key, action type, status
+  - Search by request ID or resource ID
+  - View full request/response details
+  - Export to CSV
+  - Real-time updates (optional)
+
+  Columns:
+  - Timestamp
+  - API Key (name)
+  - Action
+  - Resource
+  - Status (success/failure)
+  - Duration
+  - Details (expandable)
+
+□ Create agent analytics dashboard
+  Location: app/settings/agent-analytics/page.tsx
+  Location: components/agent-analytics-dashboard.tsx
+
+  Metrics to display:
+  - Total requests (24h, 7d, 30d)
+  - Success rate
+  - Average response time
+  - Most used endpoints
+  - Most active API keys
+  - Error rate by endpoint
+  - Budget utilization over time
+  - Actions by type (campaigns created, assets uploaded, etc.)
+
+  Visualizations:
+  - Line chart: Requests over time
+  - Bar chart: Actions by type
+  - Pie chart: Success vs. error rate
+  - Table: Top API keys by usage
+
+
+Day 14: API Documentation
+────────────────────────────────────────────────────────────────────────────
+□ Generate OpenAPI/Swagger specification
+  Location: public/api-docs/agent-api-v1.yaml
+
+  Include:
+  - All endpoints with parameters
+  - Request/response schemas
+  - Authentication requirements
+  - Error responses
+  - Examples for each endpoint
+  - Rate limit information
+
+□ Create interactive API documentation
+  Location: app/docs/agent-api/page.tsx
+
+  Features:
+  - Embedded Swagger UI
+  - "Try it out" functionality
+  - Code examples (cURL, Python, JavaScript)
+  - Authentication guide
+  - Quick start tutorial
+  - Best practices
+
+□ Create developer guide
+  Location: AGENT_API_GUIDE.md
+
+  Contents:
+  - Getting started
+  - Authentication setup
+  - API key management
+  - Common workflows
+  - Error handling
+  - Rate limits and budget controls
+  - Code examples
+  - Troubleshooting
+
+
+WEEK 2 DELIVERABLES:
+────────────────────────────────────────────────────────────────────────────
+✓ Rate limiting system (1000 req/hr per key)
+✓ Budget validation ($10k/month limit)
+✓ Comprehensive input validation with Zod
+✓ Standardized error handling
+✓ Audit logging for all actions
+✓ Audit log viewer UI
+✓ Agent analytics dashboard
+✓ OpenAPI documentation
+✓ Interactive API docs
+✓ Developer guide
+
+
+WEEK 3: FASTMCP SERVER & HOSTED AGENT
+================================================================================
+
+GOAL: Build FastMCP server for external agents (Claude Desktop, etc.) and
+      upgrade the existing chatbot to a hosted agent using the same tools.
+
+Day 15-16: FastMCP Server Setup
+────────────────────────────────────────────────────────────────────────────
+□ Create FastMCP server project
+  Location: /fastmcp-server/ (new directory at root)
+
+  Project structure:
+  ```
+  fastmcp-server/
+  ├── pyproject.toml          # Poetry config
+  ├── README.md               # Setup instructions
+  ├── .env.example            # Environment variables
+  ├── main.py                 # FastMCP server entry point
+  ├── config.py               # Configuration loader
+  ├── tools/                  # MCP tool definitions
+  │   ├── __init__.py
+  │   ├── campaigns.py        # Campaign tools
+  │   ├── assets.py           # Asset tools
+  │   └── audiences.py        # Audience tools
+  └── client/                 # HTTP client for Next.js API
+      ├── __init__.py
+      ├── base.py             # Base HTTP client
+      └── api.py              # API wrapper functions
+  ```
+
+□ Set up Python environment
+  File: fastmcp-server/pyproject.toml
+
+  Dependencies:
+  - fastmcp
+  - httpx (async HTTP client)
+  - pydantic (validation)
+  - python-dotenv (env vars)
+
+  ```toml
+  [tool.poetry]
+  name = "biddable-agent-mcp"
+  version = "1.0.0"
+  description = "FastMCP server for Biddable AI agent tools"
+
+  [tool.poetry.dependencies]
+  python = "^3.10"
+  fastmcp = "^0.2.0"
+  httpx = "^0.27.0"
+  pydantic = "^2.0.0"
+  python-dotenv = "^1.0.0"
+  ```
+
+□ Create HTTP client wrapper
+  File: fastmcp-server/client/api.py
+
+  ```python
+  import httpx
+  import os
+  from typing import Any, Dict, Optional
+
+  class BiddableAPIClient:
+      def __init__(self, api_key: str, base_url: str):
+          self.api_key = api_key
+          self.base_url = base_url
+          self.client = httpx.AsyncClient(
+              headers={"Authorization": f"Bearer {api_key}"},
+              timeout=30.0
+          )
+
+      async def request(
+          self,
+          method: str,
+          path: str,
+          json: Optional[Dict] = None,
+          params: Optional[Dict] = None
+      ) -> Dict[str, Any]:
+          """Make authenticated request to Biddable API."""
+          url = f"{self.base_url}{path}"
+          response = await self.client.request(
+              method=method,
+              url=url,
+              json=json,
+              params=params
+          )
+          response.raise_for_status()
+          return response.json()
+
+      # Campaign methods
+      async def list_campaigns(self, limit: int = 50, offset: int = 0) -> Dict:
+          return await self.request("GET", "/api/v1/agent/campaigns/list",
+                                    params={"limit": limit, "offset": offset})
+
+      async def create_campaign(self, data: Dict) -> Dict:
+          return await self.request("POST", "/api/v1/agent/campaigns/create", json=data)
+
+      async def get_campaign(self, campaign_id: int) -> Dict:
+          return await self.request("GET", f"/api/v1/agent/campaigns/{campaign_id}/get")
+
+      # ... more methods
+  ```
+
+
+Day 17-18: FastMCP Tool Definitions
+────────────────────────────────────────────────────────────────────────────
+□ Create campaign management tools
+  File: fastmcp-server/tools/campaigns.py
+
+  ```python
+  from fastmcp import FastMCP
+  from pydantic import BaseModel, Field
+  from typing import List, Optional
+  from datetime import date
+
+  class CreateCampaignInput(BaseModel):
+      name: str = Field(..., description="Campaign name")
+      platforms: List[str] = Field(..., description="Ad platforms: google, youtube, reddit, meta")
+      budget: int = Field(..., ge=1, le=10000, description="Monthly budget in USD (max $10,000)")
+      start_date: date = Field(..., description="Campaign start date (YYYY-MM-DD)")
+      end_date: date = Field(..., description="Campaign end date (YYYY-MM-DD)")
+      goal: Optional[str] = Field(None, description="Campaign goal or objective")
+
+  def register_campaign_tools(mcp: FastMCP, client):
+      @mcp.tool()
+      async def create_campaign(input: CreateCampaignInput) -> dict:
+          """
+          Create a new advertising campaign.
+
+          This creates a campaign in the database that can later be activated
+          by a human to run live ads. The campaign is initially in draft state.
+
+          Budget constraint: Total monthly budget across all campaigns cannot
+          exceed $10,000 per organization.
+          """
+          result = await client.create_campaign({
+              "name": input.name,
+              "platforms": input.platforms,
+              "budget": input.budget,
+              "start_date": str(input.start_date),
+              "end_date": str(input.end_date),
+              "goal": input.goal
+          })
+          return result
+
+      @mcp.tool()
+      async def list_campaigns(
+          limit: int = Field(50, ge=1, le=100, description="Max campaigns to return"),
+          offset: int = Field(0, ge=0, description="Offset for pagination")
+      ) -> dict:
+          """
+          List all campaigns for the organization.
+
+          Returns campaigns with their status, budget, dates, and assigned
+          assets/audiences. Use pagination for large result sets.
+          """
+          result = await client.list_campaigns(limit=limit, offset=offset)
+          return result
+
+      @mcp.tool()
+      async def get_campaign(
+          campaign_id: int = Field(..., description="Campaign ID")
+      ) -> dict:
+          """
+          Get detailed information about a specific campaign.
+
+          Returns full campaign details including assigned assets,
+          assigned audiences, budget status, and performance metrics.
+          """
+          result = await client.get_campaign(campaign_id)
+          return result
+
+      @mcp.tool()
+      async def update_campaign(
+          campaign_id: int = Field(..., description="Campaign ID"),
+          name: Optional[str] = Field(None, description="New campaign name"),
+          budget: Optional[int] = Field(None, ge=1, le=10000, description="New budget"),
+          start_date: Optional[date] = Field(None, description="New start date"),
+          end_date: Optional[date] = Field(None, description="New end date"),
+          goal: Optional[str] = Field(None, description="New goal")
+      ) -> dict:
+          """
+          Update an existing campaign.
+
+          Only provided fields will be updated. Budget changes are subject
+          to the $10,000/month organization limit.
+          """
+          data = {}
+          if name is not None:
+              data["name"] = name
+          if budget is not None:
+              data["budget"] = budget
+          if start_date is not None:
+              data["start_date"] = str(start_date)
+          if end_date is not None:
+              data["end_date"] = str(end_date)
+          if goal is not None:
+              data["goal"] = goal
+
+          result = await client.update_campaign(campaign_id, data)
+          return result
+
+      @mcp.tool()
+      async def delete_campaign(
+          campaign_id: int = Field(..., description="Campaign ID to delete")
+      ) -> dict:
+          """
+          Delete a campaign.
+
+          This permanently removes the campaign and unassigns all assets
+          and audiences. This action cannot be undone.
+          """
+          result = await client.delete_campaign(campaign_id)
+          return result
+
+      @mcp.tool()
+      async def assign_asset_to_campaign(
+          campaign_id: int = Field(..., description="Campaign ID"),
+          asset_id: str = Field(..., description="Asset ID (UUID)")
+      ) -> dict:
+          """
+          Assign a creative asset to a campaign.
+
+          Assets can be images, text ads, or Reddit ads. Multiple assets
+          can be assigned to a single campaign, and assets can be reused
+          across multiple campaigns.
+          """
+          result = await client.assign_asset(campaign_id, asset_id)
+          return result
+
+      @mcp.tool()
+      async def assign_audience_to_campaign(
+          campaign_id: int = Field(..., description="Campaign ID"),
+          audience_id: int = Field(..., description="Audience ID")
+      ) -> dict:
+          """
+          Assign a target audience to a campaign.
+
+          Audiences define demographic, geographic, and interest-based
+          targeting. Multiple audiences can be assigned to a single campaign.
+          """
+          result = await client.assign_audience(campaign_id, audience_id)
+          return result
+  ```
+
+□ Create asset management tools
+  File: fastmcp-server/tools/assets.py
+
+  Tools to implement:
+  - list_assets(type?, limit, offset)
+  - get_asset(asset_id)
+  - create_text_ad(name, ad_format, headlines[], descriptions[], paths[])
+  - create_reddit_ad(name, headline, cta, url, image_url)
+  - generate_ai_image(name, product, brand) -> Returns request_id
+  - check_ai_image_status(request_id) -> Returns status and asset when ready
+  - delete_asset(asset_id)
+
+  Note: Image upload via MCP is complex (binary data), recommend using
+        AI image generation or providing image URLs for Reddit ads.
+
+□ Create audience management tools
+  File: fastmcp-server/tools/audiences.py
+
+  Tools to implement:
+  - list_audiences(limit, offset)
+  - get_audience(audience_id)
+  - create_audience(name, description, age_min, age_max, genders[], locations[], interests[], behaviors[])
+  - update_audience(audience_id, <optional fields>)
+  - delete_audience(audience_id) -> Archives the audience
+
+□ Create main server file
+  File: fastmcp-server/main.py
+
+  ```python
+  import asyncio
+  from fastmcp import FastMCP
+  from dotenv import load_dotenv
+  import os
+  from client.api import BiddableAPIClient
+  from tools.campaigns import register_campaign_tools
+  from tools.assets import register_asset_tools
+  from tools.audiences import register_audience_tools
+
+  load_dotenv()
+
+  # Initialize FastMCP server
+  mcp = FastMCP(
+      "Biddable Agent",
+      version="1.0.0",
+      description="AI agent tools for managing advertising campaigns on Biddable"
+  )
+
+  # Initialize API client
+  client = BiddableAPIClient(
+      api_key=os.getenv("BIDDABLE_API_KEY"),
+      base_url=os.getenv("BIDDABLE_API_URL", "http://localhost:3000")
+  )
+
+  # Register all tools
+  register_campaign_tools(mcp, client)
+  register_asset_tools(mcp, client)
+  register_audience_tools(mcp, client)
+
+  if __name__ == "__main__":
+      # Run the FastMCP server
+      mcp.run()
+  ```
+
+□ Create setup documentation
+  File: fastmcp-server/README.md
+
+  Include:
+  - Installation instructions
+  - How to get API key from Biddable
+  - Environment variable setup
+  - Running the server
+  - Testing with Claude Desktop
+  - Troubleshooting
+
+
+Day 19-20: Hosted Agent Integration
+────────────────────────────────────────────────────────────────────────────
+□ Upgrade existing chat widget to agent interface
+  File: components/agent-chat-widget.tsx (new file, based on chat-widget.tsx)
+
+  Enhancements:
+  - Connect to FastMCP server instead of simple chat API
+  - Display tool calls and results
+  - Show typing indicators for long operations
+  - Confirmation prompts for destructive actions
+  - Display created resources with links
+  - Handle errors gracefully
+
+  Features:
+  - Natural language to campaign creation
+  - "Create a campaign for my product launch targeting millennials"
+  - "Generate 5 Google text ads for my new shoes"
+  - "Show me all active campaigns"
+  - "Upload these images as assets"
+
+□ Create agent configuration UI
+  File: app/settings/agent/page.tsx
+  File: components/agent-settings.tsx
+
+  Settings:
+  - Enable/disable hosted agent
+  - Agent behavior settings
+  - Auto-confirm actions or ask for approval
+  - Which tools the agent can use
+  - Budget limits specific to agent
+  - Agent conversation history
+
+□ Create agent backend proxy
+  File: app/api/agent/chat/route.ts
+
+  Purpose: Proxy chat messages to FastMCP server
+
+  Flow:
+  1. User sends message via chat widget
+  2. Backend receives message
+  3. Call FastMCP server with message
+  4. FastMCP server uses tools to fulfill request
+  5. Return response to user
+
+  Features:
+  - Streaming responses
+  - Tool call tracking
+  - Conversation history
+  - Error handling
+
+□ Create agent conversation storage
+  Table: agent_conversations
+
+  Schema:
+  ```sql
+  CREATE TABLE agent_conversations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    user_id UUID NOT NULL REFERENCES auth.users(id),
+    started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_message_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    status TEXT DEFAULT 'active', -- active, archived
+    metadata JSONB DEFAULT '{}'
+  );
+
+  CREATE TABLE agent_messages (
+    id BIGSERIAL PRIMARY KEY,
+    conversation_id UUID NOT NULL REFERENCES agent_conversations(id) ON DELETE CASCADE,
+    role TEXT NOT NULL, -- user, assistant, system
+    content TEXT NOT NULL,
+    tool_calls JSONB, -- Array of tool calls made
+    tool_results JSONB, -- Results of tool calls
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  );
+  ```
+
+
+Day 21: Testing & Documentation
+────────────────────────────────────────────────────────────────────────────
+□ Create comprehensive test suite
+  Location: /tests/agent-api/ (new directory)
+
+  Test files:
+  - test_authentication.ts: API key validation
+  - test_rate_limiting.ts: Rate limit enforcement
+  - test_budget_validation.ts: Budget constraints
+  - test_campaigns.ts: Campaign CRUD operations
+  - test_assets.ts: Asset creation and management
+  - test_audiences.ts: Audience operations
+  - test_assignments.ts: Asset/audience assignment
+  - test_error_handling.ts: Error scenarios
+
+  Test scenarios:
+  - Happy path for all operations
+  - Invalid API keys
+  - Expired API keys
+  - Rate limit exceeded
+  - Budget exceeded
+  - Invalid input data
+  - Non-existent resources
+  - Duplicate operations
+  - Cross-organization access attempts
+
+□ Create integration test for FastMCP
+  Location: /tests/fastmcp/
+
+  Test files:
+  - test_campaign_tools.py: Test all campaign tools
+  - test_asset_tools.py: Test asset tools
+  - test_audience_tools.py: Test audience tools
+
+  Use pytest and httpx for testing.
+
+□ Create deployment guide
+  File: AGENT_DEPLOYMENT.md
+
+  Contents:
+  - Production environment setup
+  - FastMCP server deployment (Docker, systemd, etc.)
+  - Environment variables for production
+  - Monitoring and logging setup
+  - Backup and disaster recovery
+  - Scaling considerations
+
+□ Create user guide for agents
+  File: docs/AGENT_USER_GUIDE.md
+
+  Contents:
+  - How to create an API key
+  - Setting up Claude Desktop with Biddable MCP
+  - Example conversations and workflows
+  - Best practices
+  - Troubleshooting common issues
+  - FAQ
+
+□ Create video tutorial (optional)
+  - Screen recording showing:
+    - Creating an API key
+    - Setting up FastMCP with Claude Desktop
+    - Creating a campaign via natural language
+    - Generating assets
+    - Assigning assets to campaigns
+    - Viewing results in Biddable UI
+
+
+WEEK 3 DELIVERABLES:
+────────────────────────────────────────────────────────────────────────────
+✓ FastMCP server with all tools
+✓ External agent integration (Claude Desktop)
+✓ Hosted agent (upgraded chat widget)
+✓ Agent conversation history
+✓ Comprehensive test suite
+✓ Deployment documentation
+✓ User guides and tutorials
+
+
+POST-LAUNCH: FUTURE ENHANCEMENTS
+================================================================================
+
+Phase 2 Features (Month 2):
+────────────────────────────────────────────────────────────────────────────
+□ Advanced agent capabilities
+  - Multi-step workflows with human-in-the-loop
+  - Campaign performance analysis and optimization
+  - Automatic budget reallocation based on performance
+  - A/B testing suggestions
+  - Competitor analysis
+
+□ Agent marketplace
+  - Pre-built agent templates
+  - Community-contributed workflows
+  - Agent sharing between organizations
+
+□ Webhooks for external systems
+  - Notify external systems of campaign changes
+  - Integrate with CRM systems
+  - Connect to analytics platforms
+
+□ Batch operations
+  - Create multiple campaigns at once
+  - Bulk asset uploads
+  - Batch audience creation
+
+□ Advanced analytics
+  - Agent performance metrics
+  - Cost per action analysis
+  - ROI prediction
+  - Anomaly detection
+
+Phase 3 Features (Month 3+):
+────────────────────────────────────────────────────────────────────────────
+□ Live ad platform integration
+  - Google Ads API integration
+  - Reddit Ads API integration
+  - Meta Ads API integration
+  - Automatic ad activation
+
+□ Real-time performance data
+  - Live impression tracking
+  - Click-through rates
+  - Conversion tracking
+  - Real-time budget pacing
+
+□ Advanced AI features
+  - Natural language to audience targeting
+  - Automatic ad copy generation
+  - Image editing and optimization
+  - Performance prediction models
+
+□ Multi-agent orchestration
+  - Multiple agents working together
+  - Specialized agents (creative, targeting, bidding)
+  - Agent delegation and coordination
+
+
+TECHNICAL SPECIFICATIONS
+================================================================================
+
+Technology Stack:
+────────────────────────────────────────────────────────────────────────────
+Backend:
+- Next.js 14 (existing)
+- TypeScript
+- Supabase (PostgreSQL + Auth + Storage)
+- Zod (validation)
+
+FastMCP Server:
+- Python 3.10+
+- FastMCP
+- httpx (async HTTP)
+- Pydantic (validation)
+
+Testing:
+- Jest (JavaScript/TypeScript)
+- Pytest (Python)
+- Postman/Newman (API testing)
+
+Deployment:
+- Vercel (Next.js)
+- Docker (FastMCP server)
+- AWS/GCP/Azure (optional, for FastMCP)
+
+Performance Targets:
+────────────────────────────────────────────────────────────────────────────
+- API response time: < 500ms (p95)
+- Rate limit: 1000 req/hr per API key
+- Concurrent requests: Support 100+ simultaneous
+- Database queries: < 100ms (p95)
+- AI image generation: 30-60 seconds (async)
+
+Security Requirements:
+────────────────────────────────────────────────────────────────────────────
+- API keys: bcrypt hashing
+- HTTPS only in production
+- Rate limiting on all endpoints
+- Input validation with Zod
+- SQL injection prevention (Supabase parameterized queries)
+- XSS prevention (React automatic escaping)
+- CORS configuration for FastMCP server
+- Audit logging for all actions
+- API key rotation support
+- Automatic key expiration
+
+
+TESTING STRATEGY
+================================================================================
+
+Unit Tests:
+────────────────────────────────────────────────────────────────────────────
+- API key generation and validation
+- Budget calculation logic
+- Rate limiting logic
+- Input validation schemas
+- Error handling utilities
+
+Integration Tests:
+────────────────────────────────────────────────────────────────────────────
+- End-to-end API workflows
+- Database operations
+- FastMCP tool execution
+- Authentication and authorization
+
+Load Tests:
+────────────────────────────────────────────────────────────────────────────
+- Rate limit enforcement under load
+- Concurrent request handling
+- Database performance under load
+- API response times at scale
+
+Security Tests:
+────────────────────────────────────────────────────────────────────────────
+- Invalid API key attempts
+- SQL injection attempts
+- XSS attempts
+- CSRF protection
+- Cross-organization access attempts
+
+
+MONITORING & OBSERVABILITY
+================================================================================
+
+Metrics to Track:
+────────────────────────────────────────────────────────────────────────────
+- Request rate (per minute, hour, day)
+- Error rate (by endpoint, by status code)
+- Response times (p50, p95, p99)
+- API key usage
+- Budget utilization
+- Agent tool usage
+- Database query performance
+- Supabase Storage usage
+
+Logging:
+────────────────────────────────────────────────────────────────────────────
+- All API requests and responses
+- Authentication attempts
+- Rate limit violations
+- Budget validation failures
+- Errors and exceptions
+- Agent tool calls
+- Database queries (slow query log)
+
+Alerting:
+────────────────────────────────────────────────────────────────────────────
+- Error rate > 5%
+- Response time > 2 seconds
+- Rate limit violations > 100/hr
+- Budget near limit (> 90% utilized)
+- API key compromised (unusual usage pattern)
+- FastMCP server down
+
+
+SUCCESS METRICS
+================================================================================
+
+Week 1:
+────────────────────────────────────────────────────────────────────────────
+✓ All API endpoints functional
+✓ API key management working
+✓ 100% test coverage for auth and validation
+✓ Documentation complete
+
+Week 2:
+────────────────────────────────────────────────────────────────────────────
+✓ Rate limiting active and tested
+✓ Budget validation enforcing $10k limit
+✓ Audit logging capturing all actions
+✓ Analytics dashboard showing real data
+
+Week 3:
+────────────────────────────────────────────────────────────────────────────
+✓ FastMCP server running and accessible
+✓ External agent (Claude Desktop) can create campaigns
+✓ Hosted agent can perform all operations
+✓ End-to-end workflow tested
+
+Post-Launch:
+────────────────────────────────────────────────────────────────────────────
+✓ 10+ active API keys
+✓ 100+ agent-created campaigns
+✓ 1000+ API requests per day
+✓ < 1% error rate
+✓ Positive user feedback
+
+
+RISK MITIGATION
+================================================================================
+
+Risk: Budget limit bypass
+Mitigation: Validate on every campaign operation, not just creation
+
+Risk: API key compromise
+Mitigation: Rate limiting, usage monitoring, automatic key rotation
+
+Risk: FastMCP server downtime
+Mitigation: Health checks, automatic restarts, fallback to manual UI
+
+Risk: Database performance degradation
+Mitigation: Proper indexing, query optimization, connection pooling
+
+Risk: External agent abuse
+Mitigation: Rate limiting, budget controls, audit logging, key revocation
+
+Risk: Budget calculation errors
+Mitigation: Comprehensive unit tests, integration tests, manual verification
+
+
+TEAM ROLES & RESPONSIBILITIES
+================================================================================
+
+Backend Developer:
+- Implement Agent API endpoints
+- Database migrations
+- API key authentication
+- Rate limiting and budget validation
+
+Frontend Developer:
+- API key management UI
+- Audit log viewer
+- Agent analytics dashboard
+- Hosted agent chat interface
+
+Python Developer:
+- FastMCP server implementation
+- Tool definitions
+- HTTP client wrapper
+- Testing and documentation
+
+DevOps Engineer:
+- FastMCP server deployment
+- Monitoring and logging setup
+- Performance testing
+- Production environment configuration
+
+QA Engineer:
+- Test suite development
+- Integration testing
+- Load testing
+- Security testing
+
+
+APPENDIX
+================================================================================
+
+Example API Request/Response:
+────────────────────────────────────────────────────────────────────────────
+Create Campaign:
+
+POST /api/v1/agent/campaigns/create
+Authorization: Bearer bbl_1234567890abcdef
+Content-Type: application/json
+
+{
+  "name": "Holiday Sale 2025",
+  "platforms": ["google", "reddit"],
+  "budget": 5000,
+  "start_date": "2025-11-01",
+  "end_date": "2025-12-31",
+  "goal": "Drive 10,000 website visits"
+}
+
+Response (201 Created):
+{
+  "success": true,
+  "data": {
+    "id": 42,
+    "campaign_name": "Holiday Sale 2025",
+    "platforms": ["google", "reddit"],
+    "budget": 5000,
+    "start_date": "2025-11-01",
+    "end_date": "2025-12-31",
+    "goal": "Drive 10,000 website visits",
+    "status": true,
+    "payment_status": "pending",
+    "amount_spent": 0,
+    "created_at": "2025-10-30T12:34:56Z",
+    "created_by": "a1b2c3d4-..."
+  }
+}
+
+Error Response (400 Bad Request):
+{
+  "success": false,
+  "error": {
+    "code": "BUDGET_EXCEEDED",
+    "message": "Campaign budget exceeds monthly limit",
+    "details": {
+      "monthly_limit": 10000,
+      "current_total": 7000,
+      "requested": 5000,
+      "available": 3000
+    },
+    "timestamp": "2025-10-30T12:34:56Z",
+    "request_id": "req_xyz789"
+  }
+}
+
+
+Example FastMCP Tool Call:
+────────────────────────────────────────────────────────────────────────────
+User message: "Create a campaign called 'Summer Sale' on Google and Reddit with a $3000 budget from June 1 to August 31"
+
+Agent uses tool: create_campaign
+Arguments:
+{
+  "name": "Summer Sale",
+  "platforms": ["google", "reddit"],
+  "budget": 3000,
+  "start_date": "2025-06-01",
+  "end_date": "2025-08-31",
+  "goal": "Summer product promotion"
+}
+
+Tool returns:
+{
+  "id": 43,
+  "campaign_name": "Summer Sale",
+  "platforms": ["google", "reddit"],
+  "budget": 3000,
+  ...
+}
+
+Agent response: "I've created the 'Summer Sale' campaign for you. It will run on Google and Reddit from June 1 to August 31 with a $3,000 budget. Campaign ID: 43. Would you like me to create some ad assets for this campaign?"
+
+
+Environment Variables:
+────────────────────────────────────────────────────────────────────────────
+Next.js (.env.local):
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+N8N_WEBHOOK_URL=https://...
+N8N_WEBHOOK_SECRET=...
+AI_CALLBACK_SECRET=...
+AI_GENERATION_RATE_LIMIT_PER_HOUR=10
+
+FastMCP Server (.env):
+BIDDABLE_API_KEY=bbl_1234567890abcdef
+BIDDABLE_API_URL=http://localhost:3000
+
+
+Claude Desktop Configuration:
+────────────────────────────────────────────────────────────────────────────
+File: ~/Library/Application Support/Claude/claude_desktop_config.json
+
+{
+  "mcpServers": {
+    "biddable": {
+      "command": "python",
+      "args": ["/path/to/fastmcp-server/main.py"],
+      "env": {
+        "BIDDABLE_API_KEY": "bbl_1234567890abcdef",
+        "BIDDABLE_API_URL": "http://localhost:3000"
+      }
+    }
+  }
+}
+
+
+================================================================================
+END OF AGENTIC BUYING SYSTEM IMPLEMENTATION PLAN
+================================================================================
+
+Next Steps:
+1. Review this plan with the team
+2. Set up project tracking (GitHub Issues, Jira, etc.)
+3. Assign tasks to team members
+4. Begin Week 1 implementation
+5. Schedule daily standups
+6. Set up monitoring and logging infrastructure
+
+Questions? Contact: [Your Team Lead]
+Last Updated: 2025-10-30
