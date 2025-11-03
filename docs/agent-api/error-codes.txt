@@ -1,0 +1,419 @@
+BIDDABLE AGENT API - ERROR CODES
+================================================================================
+
+All error responses follow this format:
+
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human-readable description",
+    "details": {},
+    "timestamp": "2025-11-03T12:34:56Z",
+    "request_id": "req_abc123"
+  }
+}
+
+Include the request_id when contacting support.
+
+
+AUTHENTICATION ERRORS (401)
+================================================================================
+
+UNAUTHORIZED
+------------
+Authentication failed or API key is invalid.
+
+Common Causes:
+- Missing Authorization header
+- Invalid API key format
+- API key does not exist
+- API key was revoked
+
+Resolution:
+- Verify Authorization header format: "Bearer bbl_..."
+- Check API key is active in profile settings
+- Generate new API key if needed
+
+
+INVALID_API_KEY
+---------------
+The provided API key is not valid.
+
+Common Causes:
+- Typo in API key
+- API key was deleted
+- Using wrong environment API key
+
+Resolution:
+- Verify API key is copied correctly
+- Check API key exists in profile settings
+- Ensure using production key for production environment
+
+
+API_KEY_EXPIRED
+---------------
+The API key has expired.
+
+Common Causes:
+- API key reached expiration date
+- Organization subscription expired
+
+Resolution:
+- Generate new API key
+- Check organization subscription status
+
+
+AUTHORIZATION ERRORS (403)
+================================================================================
+
+FORBIDDEN
+---------
+You do not have permission to access this resource.
+
+Common Causes:
+- Attempting to access another organization's resource
+- Insufficient permissions for the operation
+- Resource exists but belongs to different organization
+
+Resolution:
+- Verify resource ID is correct
+- Confirm resource belongs to your organization
+- Check API key permissions
+
+
+VALIDATION ERRORS (400)
+================================================================================
+
+VALIDATION_ERROR
+----------------
+Input data failed validation.
+
+The details field contains field-level error information:
+
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Validation failed",
+    "details": {
+      "errors": [
+        {
+          "field": "name",
+          "message": "Campaign name is required"
+        },
+        {
+          "field": "budget",
+          "message": "Budget must be at least $1"
+        }
+      ]
+    }
+  }
+}
+
+Common Causes:
+- Missing required fields
+- Field values outside allowed range
+- Invalid data format (e.g., date format)
+- Field length constraints violated
+
+Resolution:
+- Review validation rules in API Reference
+- Check all required fields are provided
+- Verify data types and formats
+- Ensure values are within allowed ranges
+
+
+INVALID_INPUT
+-------------
+Request contains invalid input data.
+
+Common Causes:
+- Malformed JSON
+- Unexpected field types
+- Invalid enum values
+
+Resolution:
+- Validate JSON syntax
+- Check field types match API specification
+- Review allowed values for enum fields
+
+
+INVALID_DATE_RANGE
+------------------
+Date range is invalid.
+
+Common Causes:
+- end_date is before or equal to start_date
+- Date format is incorrect
+
+Resolution:
+- Ensure end_date is after start_date
+- Use YYYY-MM-DD format for dates
+
+
+RESOURCE ERRORS (404)
+================================================================================
+
+RESOURCE_NOT_FOUND
+------------------
+The requested resource does not exist.
+
+The details field includes resource information:
+
+{
+  "error": {
+    "code": "RESOURCE_NOT_FOUND",
+    "message": "Campaign with ID 123 not found",
+    "details": {
+      "resource": "Campaign",
+      "id": 123
+    }
+  }
+}
+
+Common Causes:
+- Resource ID does not exist
+- Resource was deleted
+- Resource belongs to different organization
+
+Resolution:
+- Verify resource ID is correct
+- Check resource still exists
+- Confirm resource belongs to your organization
+
+
+CONFLICT ERRORS (409)
+================================================================================
+
+DUPLICATE_RESOURCE
+------------------
+Resource already exists or operation would create duplicate.
+
+Common Causes:
+- Assigning asset already assigned to campaign
+- Assigning audience already assigned to campaign
+- Creating resource with duplicate unique field
+
+Resolution:
+- Check if resource is already assigned/created
+- Remove existing assignment before reassigning
+- Use different unique identifier
+
+
+RESOURCE_CONFLICT
+-----------------
+Operation conflicts with current resource state.
+
+Common Causes:
+- Attempting to modify resource that is locked
+- Concurrent modification detected
+
+Resolution:
+- Retry operation
+- Refresh resource state before modifying
+
+
+RATE LIMITING ERRORS (429)
+================================================================================
+
+RATE_LIMIT_EXCEEDED
+-------------------
+Too many requests. Rate limit exceeded.
+
+The details field includes rate limit information and the Retry-After header
+indicates when to retry:
+
+{
+  "error": {
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Rate limit exceeded. Please try again later.",
+    "details": {
+      "limit": 1000,
+      "window": 3600,
+      "retry_after": 120
+    }
+  }
+}
+
+Headers:
+  X-RateLimit-Limit: 1000
+  X-RateLimit-Remaining: 0
+  X-RateLimit-Reset: 1699027200
+  Retry-After: 120
+
+Common Causes:
+- Too many requests in short time period
+- Hitting per-endpoint rate limits
+- Multiple API clients using same key
+
+Resolution:
+- Wait for time specified in Retry-After header
+- Implement exponential backoff
+- Spread requests over time
+- Review rate limits per endpoint
+
+
+BUDGET ERRORS (400)
+================================================================================
+
+BUDGET_EXCEEDED
+---------------
+Operation would exceed monthly budget limit of $10,000.
+
+The details field provides budget breakdown:
+
+{
+  "error": {
+    "code": "BUDGET_EXCEEDED",
+    "message": "Campaign budget exceeds monthly limit of $10,000",
+    "details": {
+      "monthly_limit": 10000,
+      "current_total": 8000,
+      "requested": 3000,
+      "available": 2000,
+      "affected_month": "November 2025",
+      "campaigns": [
+        {
+          "id": 123,
+          "name": "Existing Campaign",
+          "budget": 5000
+        }
+      ]
+    }
+  }
+}
+
+Common Causes:
+- Total campaign budgets exceed $10,000/month
+- Creating campaign that would exceed limit
+- Updating campaign budget beyond available amount
+
+Resolution:
+- Review budget status (GET /budget/status)
+- Reduce requested budget
+- Delete or reduce other campaign budgets
+- Wait until next month for budget reset
+- Adjust campaign dates to span multiple months
+
+
+SERVER ERRORS (500)
+================================================================================
+
+DATABASE_ERROR
+--------------
+Database operation failed.
+
+Common Causes:
+- Temporary database connectivity issue
+- Database constraint violation
+- Database timeout
+
+Resolution:
+- Retry request after brief delay
+- Contact support if persistent
+
+
+INTERNAL_ERROR
+--------------
+An unexpected server error occurred.
+
+Common Causes:
+- Unhandled exception in server code
+- Service dependency failure
+
+Resolution:
+- Retry request
+- Contact support with request_id if persistent
+
+
+SERVICE_UNAVAILABLE (503)
+================================================================================
+
+SERVICE_UNAVAILABLE
+-------------------
+Service is temporarily unavailable.
+
+Common Causes:
+- Scheduled maintenance
+- Server overload
+- Deployment in progress
+
+Resolution:
+- Wait and retry after delay
+- Check status page for maintenance notices
+- Implement exponential backoff
+
+
+ERROR HANDLING BEST PRACTICES
+================================================================================
+
+1. Always check the success field
+   if (!response.success) { handleError(response.error) }
+
+2. Log request_id for debugging
+   Store request_id with your logs for support requests
+
+3. Implement retry logic with exponential backoff
+   For 429 and 5xx errors, retry with increasing delays
+
+4. Handle validation errors gracefully
+   Parse details.errors array to show field-specific messages
+
+5. Monitor rate limits
+   Track X-RateLimit-Remaining header to avoid hitting limits
+
+6. Check budget before operations
+   Use GET /budget/status to verify available budget
+
+7. Provide user-friendly error messages
+   Convert technical error codes to actionable user messages
+
+
+EXAMPLE ERROR HANDLING
+================================================================================
+
+try {
+  const response = await fetch('/api/v1/agent/campaigns/create', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(campaignData)
+  });
+
+  const data = await response.json();
+
+  if (!data.success) {
+    switch (data.error.code) {
+      case 'VALIDATION_ERROR':
+        // Show field-level errors to user
+        displayValidationErrors(data.error.details.errors);
+        break;
+
+      case 'BUDGET_EXCEEDED':
+        // Show budget information
+        showBudgetExceeded(data.error.details);
+        break;
+
+      case 'RATE_LIMIT_EXCEEDED':
+        // Wait and retry
+        const retryAfter = response.headers.get('Retry-After');
+        await sleep(retryAfter * 1000);
+        return retry();
+
+      case 'UNAUTHORIZED':
+        // Re-authenticate
+        refreshApiKey();
+        break;
+
+      default:
+        // Log and show generic error
+        logError(data.error.request_id, data.error);
+        showGenericError();
+    }
+  }
+} catch (error) {
+  // Network or other errors
+  handleNetworkError(error);
+}
