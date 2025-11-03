@@ -17,13 +17,14 @@ import {
  * - type: 'image' | 'video' | 'text' | 'reddit_ad' | 'all' (default: 'all')
  */
 export async function GET(request: NextRequest) {
-  const requestId = generateRequestId()
 
   // Authenticate request
-  const auth = await authenticateAgentRequest(request)
-  if (auth instanceof NextResponse) {
-    return auth // Error response
+  const authResult = await authenticateAgentRequest(request)
+  if (!authResult.success) {
+    return authResult.response
   }
+
+  const { organizationId, requestId, rateLimit } = authResult
 
   try {
     // Parse query parameters
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('assets')
       .select('*', { count: 'exact' })
-      .eq('organization_id', auth.organizationId)
+      .eq('organization_id', organizationId)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
 
@@ -78,7 +79,8 @@ export async function GET(request: NextRequest) {
       { status: 200 }
     )
 
-    return addAgentApiHeaders(response, requestId)
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+    return response
   } catch (error) {
     console.error('Error in assets list endpoint:', error)
     return createErrorResponse(

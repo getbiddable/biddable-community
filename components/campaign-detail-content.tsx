@@ -88,6 +88,16 @@ export function CampaignDetailContent({ campaignId }: CampaignDetailContentProps
   const [availableAudiences, setAvailableAudiences] = useState<Audience[]>([])
   const [isAssignAudienceDialogOpen, setIsAssignAudienceDialogOpen] = useState(false)
   const [assigningAudienceId, setAssigningAudienceId] = useState<number | null>(null)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [editForm, setEditForm] = useState({
+    campaign_name: '',
+    budget: 0,
+    start_date: '',
+    end_date: '',
+    goal: '',
+    platforms: [] as string[],
+    status: true
+  })
   const router = useRouter()
 
   useEffect(() => {
@@ -263,6 +273,54 @@ export function CampaignDetailContent({ campaignId }: CampaignDetailContentProps
     }
   }
 
+  const handleOpenEditDialog = () => {
+    if (campaign) {
+      setEditForm({
+        campaign_name: campaign.campaign_name,
+        budget: campaign.budget,
+        start_date: campaign.start_date,
+        end_date: campaign.end_date,
+        goal: campaign.goal || '',
+        platforms: campaign.platforms,
+        status: campaign.status
+      })
+      setIsEditDialogOpen(true)
+    }
+  }
+
+  const handleUpdateCampaign = async () => {
+    try {
+      const response = await fetch(`/api/campaigns/${campaignId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(editForm)
+      })
+
+      if (response.ok) {
+        await fetchCampaign()
+        setIsEditDialogOpen(false)
+        alert('Campaign updated successfully!')
+      } else {
+        const error = await response.json()
+        alert(error.error || 'Failed to update campaign')
+      }
+    } catch (err) {
+      console.error('Error updating campaign:', err)
+      alert('Failed to update campaign')
+    }
+  }
+
+  const handlePlatformToggle = (platform: string) => {
+    setEditForm(prev => {
+      const platforms = prev.platforms.includes(platform)
+        ? prev.platforms.filter(p => p !== platform)
+        : [...prev.platforms, platform]
+      return { ...prev, platforms }
+    })
+  }
+
   const formatNumber = (num: number) => {
     if (num >= 1000000) {
       return `${(num / 1000000).toFixed(1)}M`
@@ -376,7 +434,7 @@ export function CampaignDetailContent({ campaignId }: CampaignDetailContentProps
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" disabled>
+          <Button variant="outline" onClick={handleOpenEditDialog}>
             <Edit className="mr-2 h-4 w-4" />
             Edit
           </Button>
@@ -927,6 +985,134 @@ export function CampaignDetailContent({ campaignId }: CampaignDetailContentProps
           )}
         </CardContent>
       </Card>
+
+      {/* Edit Campaign Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Campaign</DialogTitle>
+            <DialogDescription>
+              Update campaign details. Changes will be saved immediately.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Campaign Name */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Campaign Name</label>
+              <input
+                type="text"
+                className="w-full px-3 py-2 border rounded-md"
+                value={editForm.campaign_name}
+                onChange={(e) => setEditForm({ ...editForm, campaign_name: e.target.value })}
+                placeholder="Enter campaign name"
+              />
+            </div>
+
+            {/* Platforms */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Platforms</label>
+              <div className="grid grid-cols-2 gap-2">
+                {['google', 'youtube', 'reddit', 'meta'].map((platform) => (
+                  <div
+                    key={platform}
+                    onClick={() => handlePlatformToggle(platform)}
+                    className={`px-4 py-3 border rounded-md cursor-pointer transition-colors ${
+                      editForm.platforms.includes(platform)
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'hover:bg-accent'
+                    }`}
+                  >
+                    {platform.charAt(0).toUpperCase() + platform.slice(1)}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Budget */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Budget (USD)</label>
+              <input
+                type="number"
+                className="w-full px-3 py-2 border rounded-md"
+                value={editForm.budget}
+                onChange={(e) => setEditForm({ ...editForm, budget: parseInt(e.target.value) || 0 })}
+                placeholder="Enter budget"
+                min="0"
+              />
+            </div>
+
+            {/* Date Range */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Start Date</label>
+                <input
+                  type="date"
+                  className="w-full px-3 py-2 border rounded-md"
+                  value={editForm.start_date}
+                  onChange={(e) => setEditForm({ ...editForm, start_date: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">End Date</label>
+                <input
+                  type="date"
+                  className="w-full px-3 py-2 border rounded-md"
+                  value={editForm.end_date}
+                  onChange={(e) => setEditForm({ ...editForm, end_date: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {/* Goal */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Goal (Optional)</label>
+              <textarea
+                className="w-full px-3 py-2 border rounded-md min-h-[100px]"
+                value={editForm.goal}
+                onChange={(e) => setEditForm({ ...editForm, goal: e.target.value })}
+                placeholder="Describe the campaign goal"
+              />
+            </div>
+
+            {/* Status */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Status</label>
+              <div className="flex items-center gap-4">
+                <div
+                  onClick={() => setEditForm({ ...editForm, status: true })}
+                  className={`px-4 py-2 border rounded-md cursor-pointer transition-colors ${
+                    editForm.status
+                      ? 'bg-green-500 text-white border-green-500'
+                      : 'hover:bg-accent'
+                  }`}
+                >
+                  Active
+                </div>
+                <div
+                  onClick={() => setEditForm({ ...editForm, status: false })}
+                  className={`px-4 py-2 border rounded-md cursor-pointer transition-colors ${
+                    !editForm.status
+                      ? 'bg-gray-500 text-white border-gray-500'
+                      : 'hover:bg-accent'
+                  }`}
+                >
+                  Inactive
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateCampaign}>
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

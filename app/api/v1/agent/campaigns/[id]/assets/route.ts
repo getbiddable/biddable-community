@@ -15,13 +15,14 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const requestId = generateRequestId()
 
   // Authenticate request
-  const auth = await authenticateAgentRequest(request)
-  if (auth instanceof NextResponse) {
-    return auth // Error response
+  const authResult = await authenticateAgentRequest(request)
+  if (!authResult.success) {
+    return authResult.response
   }
+
+  const { organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
@@ -65,7 +66,7 @@ export async function GET(
       .eq('user_id', campaign.created_by)
       .single()
 
-    if (orgError || userOrg?.organization_id !== auth.organizationId) {
+    if (orgError || userOrg?.organization_id !== organizationId) {
       return createErrorResponse(
         'FORBIDDEN',
         'You do not have access to this campaign',
@@ -121,7 +122,8 @@ export async function GET(
       { status: 200 }
     )
 
-    return addAgentApiHeaders(response, requestId)
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+    return response
   } catch (error) {
     console.error('Error in campaign assets list endpoint:', error)
     return createErrorResponse(
@@ -147,13 +149,14 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const requestId = generateRequestId()
 
   // Authenticate request
-  const auth = await authenticateAgentRequest(request)
-  if (auth instanceof NextResponse) {
-    return auth // Error response
+  const authResult = await authenticateAgentRequest(request)
+  if (!authResult.success) {
+    return authResult.response
   }
+
+  const { organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
@@ -211,7 +214,7 @@ export async function POST(
       .eq('user_id', campaign.created_by)
       .single()
 
-    if (orgError || userOrg?.organization_id !== auth.organizationId) {
+    if (orgError || userOrg?.organization_id !== organizationId) {
       return createErrorResponse(
         'FORBIDDEN',
         'You do not have access to this campaign',
@@ -226,7 +229,7 @@ export async function POST(
       .from('assets')
       .select('id, organization_id')
       .eq('id', asset_id)
-      .eq('organization_id', auth.organizationId)
+      .eq('organization_id', organizationId)
       .single()
 
     if (assetError || !asset) {
@@ -243,7 +246,7 @@ export async function POST(
     const { data: orgMember, error: memberError } = await supabase
       .from('organization_members')
       .select('user_id')
-      .eq('organization_id', auth.organizationId)
+      .eq('organization_id', organizationId)
       .limit(1)
       .single()
 
@@ -301,7 +304,8 @@ export async function POST(
       { status: 201 }
     )
 
-    return addAgentApiHeaders(response, requestId)
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+    return response
   } catch (error) {
     console.error('Error in campaign asset assign endpoint:', error)
 
@@ -336,13 +340,14 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const requestId = generateRequestId()
 
   // Authenticate request
-  const auth = await authenticateAgentRequest(request)
-  if (auth instanceof NextResponse) {
-    return auth // Error response
+  const authResult = await authenticateAgentRequest(request)
+  if (!authResult.success) {
+    return authResult.response
   }
+
+  const { organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
@@ -399,7 +404,7 @@ export async function DELETE(
       .eq('user_id', campaign.created_by)
       .single()
 
-    if (orgError || userOrg?.organization_id !== auth.organizationId) {
+    if (orgError || userOrg?.organization_id !== organizationId) {
       return createErrorResponse(
         'FORBIDDEN',
         'You do not have access to this campaign',
@@ -439,7 +444,8 @@ export async function DELETE(
       { status: 200 }
     )
 
-    return addAgentApiHeaders(response, requestId)
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+    return response
   } catch (error) {
     console.error('Error in campaign asset unassign endpoint:', error)
     return createErrorResponse(

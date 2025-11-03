@@ -1027,3 +1027,175 @@ Ready to test: Create a text ad and verify it saves to the assets table
   * AI Integration: n8n webhooks for image generation
 - All core features working and tested
 - Ready for Week 2 implementation (rate limiting, budget controls, documentation)
+
+[2025-11-03] Week 2 Day 8-9: Rate Limiting & Budget Controls Implementation
+- Implemented comprehensive rate limiting system (lib/agent-rate-limiter.ts):
+  * Token bucket algorithm with sliding window
+  * In-memory storage for rate limit buckets (production-ready, Redis optional)
+  * Per-API-key and per-action rate limiting
+  * Rate limit configuration:
+    - Global: 1000 requests/hour
+    - Campaign create: 10/hour
+    - Campaign update/delete: 50/hour and 10/hour
+    - Asset create: 50/hour
+    - List operations: 200/hour
+    - AI image generation: 10/hour (expensive operations)
+  * Custom rate limits via api_keys.metadata field
+  * Standard HTTP 429 responses with Retry-After header
+  * Rate limit headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset
+  * Automatic cleanup of old rate limit buckets
+  * Action name mapping from HTTP paths (getActionFromPath)
+  * Functions implemented:
+    - checkRateLimit(): Check and consume rate limit token
+    - getRateLimitStatus(): Get status without consuming token
+    - resetRateLimit(): Admin function to reset limits
+    - cleanupOldBuckets(): Periodic cleanup for memory management
+    - addRateLimitHeaders(): Add standard rate limit headers to responses
+- Implemented budget validation system (lib/agent-budget-validator.ts):
+  * Enforces $10,000/month organizational limit
+  * Validates campaign budgets on creation and updates
+  * Multi-month validation for campaigns spanning multiple months
+  * Campaign overlap detection with month boundaries
+  * Budget calculation excludes campaign being updated (for updates)
+  * Functions implemented:
+    - calculateMonthlyBudget(): Calculate total budget for a specific month
+    - validateCampaignBudget(): Validate if new budget is within limits
+    - getRemainingBudget(): Get available budget for a month
+    - getBudgetStatus(): Get budget status across multiple months
+    - formatBudgetError(): Format validation errors for API responses
+  * Organization-scoped budget tracking via organization_members
+  * Detailed error responses with:
+    - Monthly limit ($10,000)
+    - Current total allocated
+    - Requested amount
+    - Available budget remaining
+    - Affected month
+    - List of existing campaigns contributing to budget
+- Created budget status API endpoint (app/api/v1/agent/budget/status/route.ts):
+  * GET /api/v1/agent/budget/status
+  * Query params: ?year=2025&month=11 (optional, defaults to current month)
+  * Returns budget status for current + next 2 months
+  * Response includes:
+    - Monthly limit ($10,000)
+    - Total budget allocated per month
+    - Remaining budget available
+    - Utilization percentage
+    - List of campaigns with budgets for each month
+    - Month names (e.g., "November") for readability
+  * Standard agent API authentication and error handling
+- Integrated rate limiting into agent API middleware (lib/agent-api-middleware.ts):
+  * Updated authenticateAgentRequest() function
+  * Changed return type to discriminated union:
+    - Success: { success: true, apiKeyId, organizationId, requestId, rateLimit, ... }
+    - Failure: { success: false, response: NextResponse }
+  * Rate limit check happens after API key validation
+  * Returns 429 error if rate limit exceeded
+  * Rate limit info included in success response for use in endpoints
+  * Updated addAgentApiHeaders() helper:
+    - Takes Headers object instead of NextResponse
+    - Accepts optional RateLimitResult parameter
+    - Automatically adds X-Request-ID and rate limit headers
+- Integrated budget validation into campaign endpoints:
+  * Updated app/api/v1/agent/campaigns/create/route.ts:
+    - Added budget validation before campaign creation
+    - Validates against organizational $10,000/month limit
+    - Returns 400 error with detailed budget information if exceeded
+    - Updated to use new authenticateAgentRequest return type
+    - Added rate limit headers to all responses
+  * Updated app/api/v1/agent/campaigns/[id]/update/route.ts:
+    - Added budget validation for updates affecting budget/dates
+    - Fetches existing campaign data (budget, start_date, end_date)
+    - Validates using new values if provided, existing values otherwise
+    - Excludes current campaign from budget calculation (campaignId param)
+    - Only validates if budget, start_date, or end_date is being changed
+    - Updated to use new authenticateAgentRequest return type
+    - Added rate limit headers to all responses
+- Week 2 Day 8-9: ✅ COMPLETE
+- Implementation highlights:
+  * All rate limiting is automatic - middleware checks every request
+  * Budget validation prevents over-commitment of organizational resources
+  * Multi-month campaigns validated across all affected months
+  * Standard error responses with actionable details
+  * Rate limit headers returned on every request (success and failure)
+  * Memory-efficient with automatic cleanup
+  * Production-ready: Can scale to distributed with Redis if needed
+- Status: 14 agent API endpoints operational (13 existing + 1 new budget/status)
+- Next steps:
+  * Week 2 Day 10-11: Comprehensive input validation & error handling
+  * Week 2 Day 12-13: Audit logging & analytics dashboards
+  * Week 2 Day 14: API documentation (OpenAPI/Swagger)
+
+[2025-11-03] Created Comprehensive Test Suite for Rate Limiting & Budget Controls
+- Created automated test script (test-rate-limit-budget.sh):
+  * 8 comprehensive test scenarios
+  * Colored output for easy readability
+  * Automatic cleanup of test data
+  * Tests all rate limiting functionality
+  * Tests all budget validation scenarios
+  * Tests multi-month budget validation
+  * Tests budget status endpoints
+  * Provides detailed pass/fail reporting
+  * Total: 462 lines of bash testing code
+- Created comprehensive test guide (RATE_LIMIT_BUDGET_TEST_GUIDE.md):
+  * Prerequisites and setup instructions
+  * Quick start guide
+  * Detailed manual testing procedures
+  * Expected results for all scenarios
+  * Troubleshooting section
+  * Cleanup instructions
+  * Total: 650+ lines of documentation
+- Test script features:
+  * Validates budget status endpoint
+  * Tests campaign creation under budget
+  * Tests budget exceeded scenarios
+  * Tests campaign budget updates with validation
+  * Tests rate limiting on list endpoint (200 req/hr)
+  * Tests rate limiting on create endpoint (10 req/hr)
+  * Tests multi-month budget validation
+  * Tests budget status with month parameters
+  * Automatic cleanup of test campaigns
+  * Exit codes for CI/CD integration
+- All tests ready to run
+- Server must be started before running tests: npm run dev
+
+[2025-11-03] Implemented Campaign Edit Functionality
+- User reported that edit button on campaign detail page was greyed out/disabled
+- Implemented full campaign editing functionality:
+  * Added edit dialog state management to campaign-detail-content.tsx
+  * Created handleOpenEditDialog() to populate form with current campaign data
+  * Created handleUpdateCampaign() to submit updates to API
+  * Created handlePlatformToggle() for multi-select platform editing
+  * Added comprehensive edit form with all campaign fields:
+    - Campaign name
+    - Platforms (multi-select: google, youtube, reddit, meta)
+    - Budget (USD)
+    - Start date
+    - End date
+    - Goal (optional textarea)
+    - Status (Active/Inactive toggle)
+  * Edit dialog features:
+    - Max height with scroll for mobile compatibility
+    - Real-time form updates
+    - Visual feedback for selected platforms
+    - Color-coded status toggle (green for active, gray for inactive)
+    - Cancel and Save buttons
+- Created PUT endpoint at app/api/campaigns/[id]/route.ts:
+  * Authenticates user ownership of campaign
+  * Validates all required fields
+  * Updates campaign in database
+  * Returns updated campaign data
+  * Proper error handling (401, 404, 400, 500)
+- Edit button now fully functional:
+  * Removed disabled prop
+  * Added onClick handler to open edit dialog
+  * Users can now edit campaigns from detail page
+- UI enhancements:
+  * Clean, modern dialog design
+  * Responsive layout (2-column grid for dates)
+  * Platform selection with visual feedback
+  * Success alert after save
+  * Dialog closes automatically on success
+- Files modified:
+  * components/campaign-detail-content.tsx (132 lines added)
+  * app/api/campaigns/[id]/route.ts (PUT method added, 88 lines)
+- Ready for testing

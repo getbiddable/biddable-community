@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { validateApiKey } from './agent-api-keys'
+import { checkRateLimit, getActionFromPath, addRateLimitHeaders, type RateLimitResult } from './agent-rate-limiter'
 
 /**
  * Agent API authentication result
@@ -10,6 +11,8 @@ export interface AgentAuthContext {
   keyName: string
   permissions: Record<string, string[]>
   metadata: Record<string, any>
+  requestId: string
+  rateLimit?: RateLimitResult
 }
 
 /**
@@ -63,53 +66,65 @@ export function createErrorResponse(
  *
  * Usage:
  * ```typescript
- * const auth = await authenticateAgentRequest(request)
- * if (auth instanceof NextResponse) {
- *   return auth // Error response
+ * const authResult = await authenticateAgentRequest(request)
+ * if (!authResult.success) {
+ *   return authResult.response // Error response
  * }
- * // auth is AgentAuthContext
+ * // Use authResult.organizationId, authResult.apiKeyId, etc.
  * ```
  */
 export async function authenticateAgentRequest(
   request: NextRequest
-): Promise<AgentAuthContext | NextResponse<AgentErrorResponse>> {
+): Promise<
+  | { success: true; apiKeyId: string; organizationId: string; keyName: string; permissions: Record<string, string[]>; metadata: Record<string, any>; requestId: string; rateLimit: RateLimitResult }
+  | { success: false; response: NextResponse<AgentErrorResponse> }
+> {
   const requestId = generateRequestId()
 
   // Extract Authorization header
   const authHeader = request.headers.get('Authorization')
 
   if (!authHeader) {
-    return createErrorResponse(
-      'UNAUTHORIZED',
-      'Missing Authorization header',
-      401,
-      { expected_format: 'Authorization: Bearer <api-key>' },
-      requestId
-    )
+    return {
+      success: false,
+      response: createErrorResponse(
+        'UNAUTHORIZED',
+        'Missing Authorization header',
+        401,
+        { expected_format: 'Authorization: Bearer <api-key>' },
+        requestId
+      ),
+    }
   }
 
   // Parse Bearer token
   const parts = authHeader.split(' ')
   if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return createErrorResponse(
-      'UNAUTHORIZED',
-      'Invalid Authorization header format',
-      401,
-      { expected_format: 'Authorization: Bearer <api-key>', received: authHeader },
-      requestId
-    )
+    return {
+      success: false,
+      response: createErrorResponse(
+        'UNAUTHORIZED',
+        'Invalid Authorization header format',
+        401,
+        { expected_format: 'Authorization: Bearer <api-key>', received: authHeader },
+        requestId
+      ),
+    }
   }
 
   const apiKey = parts[1]
 
   if (!apiKey) {
-    return createErrorResponse(
-      'UNAUTHORIZED',
-      'API key is empty',
-      401,
-      undefined,
-      requestId
-    )
+    return {
+      success: false,
+      response: createErrorResponse(
+        'UNAUTHORIZED',
+        'API key is empty',
+        401,
+        undefined,
+        requestId
+      ),
+    }
   }
 
   // Validate API key
@@ -117,34 +132,74 @@ export async function authenticateAgentRequest(
     const validation = await validateApiKey(apiKey)
 
     if (!validation.valid) {
-      return createErrorResponse(
-        'UNAUTHORIZED',
-        validation.reason === 'expired'
-          ? 'API key has expired'
-          : 'Invalid API key',
-        401,
-        { reason: validation.reason },
-        requestId
-      )
+      return {
+        success: false,
+        response: createErrorResponse(
+          'UNAUTHORIZED',
+          validation.reason === 'expired'
+            ? 'API key has expired'
+            : 'Invalid API key',
+          401,
+          { reason: validation.reason },
+          requestId
+        ),
+      }
     }
 
-    // Return authentication context
+    // Check rate limit
+    const action = getActionFromPath(request.method, request.nextUrl.pathname)
+    const rateLimitResult = await checkRateLimit(
+      validation.apiKey!.id,
+      action,
+      validation.apiKey!.metadata
+    )
+
+    if (!rateLimitResult.allowed) {
+      const response = createErrorResponse(
+        'RATE_LIMIT_EXCEEDED',
+        'Rate limit exceeded. Please try again later.',
+        429,
+        {
+          limit: rateLimitResult.limit,
+          reset: rateLimitResult.reset,
+          retry_after: rateLimitResult.retryAfter,
+          action,
+        },
+        requestId
+      )
+
+      // Add rate limit headers
+      addRateLimitHeaders(response.headers, rateLimitResult)
+
+      return {
+        success: false,
+        response,
+      }
+    }
+
+    // Return authentication context with rate limit info
     return {
+      success: true,
       apiKeyId: validation.apiKey!.id,
       organizationId: validation.apiKey!.organizationId,
       keyName: validation.apiKey!.name,
       permissions: validation.apiKey!.permissions,
       metadata: validation.apiKey!.metadata,
+      requestId,
+      rateLimit: rateLimitResult,
     }
   } catch (error) {
     console.error('Error validating API key:', error)
-    return createErrorResponse(
-      'INTERNAL_ERROR',
-      'Failed to validate API key',
-      500,
-      undefined,
-      requestId
-    )
+    return {
+      success: false,
+      response: createErrorResponse(
+        'INTERNAL_ERROR',
+        'Failed to validate API key',
+        500,
+        undefined,
+        requestId
+      ),
+    }
   }
 }
 
@@ -152,21 +207,13 @@ export async function authenticateAgentRequest(
  * Add standard headers to agent API responses
  */
 export function addAgentApiHeaders(
-  response: NextResponse,
+  headers: Headers,
   requestId: string,
-  rateLimitInfo?: {
-    limit: number
-    remaining: number
-    reset: number
-  }
-): NextResponse {
-  response.headers.set('X-Request-ID', requestId)
+  rateLimitInfo?: RateLimitResult
+): void {
+  headers.set('X-Request-ID', requestId)
 
   if (rateLimitInfo) {
-    response.headers.set('X-RateLimit-Limit', rateLimitInfo.limit.toString())
-    response.headers.set('X-RateLimit-Remaining', rateLimitInfo.remaining.toString())
-    response.headers.set('X-RateLimit-Reset', rateLimitInfo.reset.toString())
+    addRateLimitHeaders(headers, rateLimitInfo)
   }
-
-  return response
 }

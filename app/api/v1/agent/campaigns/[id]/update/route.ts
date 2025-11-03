@@ -6,6 +6,7 @@ import {
   generateRequestId,
   addAgentApiHeaders,
 } from '@/lib/agent-api-middleware'
+import { validateCampaignBudget, formatBudgetError } from '@/lib/agent-budget-validator'
 import { z } from 'zod'
 
 /**
@@ -29,13 +30,13 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const requestId = generateRequestId()
-
   // Authenticate request
-  const auth = await authenticateAgentRequest(request)
-  if (auth instanceof NextResponse) {
-    return auth // Error response
+  const authResult = await authenticateAgentRequest(request)
+  if (!authResult.success) {
+    return authResult.response
   }
+
+  const { organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
@@ -88,7 +89,7 @@ export async function PATCH(
     // Check campaign exists and user has access
     const { data: existing, error: fetchError } = await supabase
       .from('campaigns')
-      .select('created_by')
+      .select('id, created_by, budget, start_date, end_date')
       .eq('id', campaignId)
       .single()
 
@@ -109,7 +110,7 @@ export async function PATCH(
       .eq('user_id', existing.created_by)
       .single()
 
-    if (orgError || userOrg?.organization_id !== auth.organizationId) {
+    if (orgError || userOrg?.organization_id !== organizationId) {
       return createErrorResponse(
         'FORBIDDEN',
         'You do not have access to this campaign',
@@ -129,7 +130,27 @@ export async function PATCH(
     if (data.goal !== undefined) updateData.goal = data.goal
     if (data.status !== undefined) updateData.status = data.status
 
-    // TODO: Add budget validation here (Week 2)
+    // Validate budget if budget, start_date, or end_date is being updated
+    if (data.budget !== undefined || data.start_date !== undefined || data.end_date !== undefined) {
+      const newBudget = data.budget ?? existing.budget
+      const newStartDate = data.start_date ?? existing.start_date
+      const newEndDate = data.end_date ?? existing.end_date
+
+      const budgetValidation = await validateCampaignBudget(
+        organizationId,
+        newBudget,
+        newStartDate,
+        newEndDate,
+        campaignId // Exclude current campaign from calculation
+      )
+
+      if (!budgetValidation.valid) {
+        const errorResponse = formatBudgetError(budgetValidation)
+        const response = NextResponse.json(errorResponse, { status: 400 })
+        addAgentApiHeaders(response.headers, requestId, rateLimit)
+        return response
+      }
+    }
 
     // Update campaign
     const { data: campaign, error: updateError } = await supabase
@@ -160,7 +181,8 @@ export async function PATCH(
       { status: 200 }
     )
 
-    return addAgentApiHeaders(response, requestId)
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+    return response
   } catch (error) {
     console.error('Error in campaign update endpoint:', error)
 

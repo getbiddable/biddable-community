@@ -8,21 +8,20 @@ import {
 } from '@/lib/agent-api-middleware'
 
 /**
- * GET /api/v1/agent/campaigns/[id]/audiences
- * List all audiences assigned to a campaign
+ * GET /api/v1/agent/campaigns/[id]/assets
+ * List all assets assigned to a campaign
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const requestId = generateRequestId()
 
   // Authenticate request
-  const authResult = await authenticateAgentRequest(request)
-  if (!authResult.success) {
-    return authResult.response
+  const auth = await authenticateAgentRequest(request)
+  if (auth instanceof NextResponse) {
+    return auth // Error response
   }
-
-  const { organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
@@ -66,7 +65,7 @@ export async function GET(
       .eq('user_id', campaign.created_by)
       .single()
 
-    if (orgError || userOrg?.organization_id !== organizationId) {
+    if (orgError || userOrg?.organization_id !== auth.organizationId) {
       return createErrorResponse(
         'FORBIDDEN',
         'You do not have access to this campaign',
@@ -76,25 +75,23 @@ export async function GET(
       )
     }
 
-    // Fetch assigned audiences with full details
+    // Fetch assigned assets with full details
     const { data: assignments, error: assignmentsError } = await supabase
-      .from('campaign_audiences')
+      .from('campaign_assets')
       .select(`
         id,
         assigned_at,
-        audience_id,
-        audiences (
+        asset_id,
+        assets (
           id,
           name,
-          description,
-          age_min,
-          age_max,
-          genders,
-          locations,
-          interests,
-          behaviors,
-          estimated_size,
+          type,
+          format,
+          size,
+          file_url,
           status,
+          ad_format,
+          ad_data,
           created_at
         )
       `)
@@ -102,10 +99,10 @@ export async function GET(
       .order('assigned_at', { ascending: false })
 
     if (assignmentsError) {
-      console.error('Error fetching campaign audiences:', assignmentsError)
+      console.error('Error fetching campaign assets:', assignmentsError)
       return createErrorResponse(
         'DATABASE_ERROR',
-        'Failed to fetch campaign audiences',
+        'Failed to fetch campaign assets',
         500,
         { error: assignmentsError.message },
         requestId
@@ -117,17 +114,16 @@ export async function GET(
         success: true,
         data: {
           campaign_id: campaignId,
-          audiences: assignments || [],
+          assets: assignments || [],
           count: assignments?.length || 0,
         },
       },
       { status: 200 }
     )
 
-    addAgentApiHeaders(response.headers, requestId, rateLimit)
-    return response
+    return addAgentApiHeaders(response, requestId)
   } catch (error) {
-    console.error('Error in campaign audiences list endpoint:', error)
+    console.error('Error in campaign assets list endpoint:', error)
     return createErrorResponse(
       'INTERNAL_ERROR',
       'An unexpected error occurred',
@@ -139,26 +135,25 @@ export async function GET(
 }
 
 /**
- * POST /api/v1/agent/campaigns/[id]/audiences
- * Assign an audience to a campaign
+ * POST /api/v1/agent/campaigns/[id]/assets
+ * Assign an asset to a campaign
  *
  * Request body:
  * {
- *   audience_id: number
+ *   asset_id: string (UUID)
  * }
  */
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const requestId = generateRequestId()
 
   // Authenticate request
-  const authResult = await authenticateAgentRequest(request)
-  if (!authResult.success) {
-    return authResult.response
+  const auth = await authenticateAgentRequest(request)
+  if (auth instanceof NextResponse) {
+    return auth // Error response
   }
-
-  const { organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
@@ -175,25 +170,14 @@ export async function POST(
 
     // Parse request body
     const body = await request.json()
-    const { audience_id } = body
+    const { asset_id } = body
 
-    if (!audience_id) {
+    if (!asset_id) {
       return createErrorResponse(
         'VALIDATION_ERROR',
-        'Audience ID is required',
+        'Asset ID is required',
         400,
         undefined,
-        requestId
-      )
-    }
-
-    const audienceId = parseInt(audience_id)
-    if (isNaN(audienceId)) {
-      return createErrorResponse(
-        'VALIDATION_ERROR',
-        'Audience ID must be a number',
-        400,
-        { audience_id },
         requestId
       )
     }
@@ -227,7 +211,7 @@ export async function POST(
       .eq('user_id', campaign.created_by)
       .single()
 
-    if (orgError || userOrg?.organization_id !== organizationId) {
+    if (orgError || userOrg?.organization_id !== auth.organizationId) {
       return createErrorResponse(
         'FORBIDDEN',
         'You do not have access to this campaign',
@@ -237,20 +221,20 @@ export async function POST(
       )
     }
 
-    // Verify audience exists and belongs to organization
-    const { data: audience, error: audienceError } = await supabase
-      .from('audiences')
+    // Verify asset exists and belongs to organization
+    const { data: asset, error: assetError } = await supabase
+      .from('assets')
       .select('id, organization_id')
-      .eq('id', audienceId)
-      .eq('organization_id', organizationId)
+      .eq('id', asset_id)
+      .eq('organization_id', auth.organizationId)
       .single()
 
-    if (audienceError || !audience) {
+    if (assetError || !asset) {
       return createErrorResponse(
         'RESOURCE_NOT_FOUND',
-        'Audience not found or does not belong to your organization',
+        'Asset not found or does not belong to your organization',
         404,
-        { audience_id: audienceId },
+        { asset_id },
         requestId
       )
     }
@@ -259,7 +243,7 @@ export async function POST(
     const { data: orgMember, error: memberError } = await supabase
       .from('organization_members')
       .select('user_id')
-      .eq('organization_id', organizationId)
+      .eq('organization_id', auth.organizationId)
       .limit(1)
       .single()
 
@@ -273,12 +257,12 @@ export async function POST(
       )
     }
 
-    // Assign audience to campaign
+    // Assign asset to campaign
     const { data: assignment, error: insertError } = await supabase
-      .from('campaign_audiences')
+      .from('campaign_assets')
       .insert({
         campaign_id: campaignId,
-        audience_id: audienceId,
+        asset_id: asset_id,
         assigned_by: orgMember.user_id,
       })
       .select()
@@ -289,17 +273,17 @@ export async function POST(
       if (insertError.code === '23505') {
         return createErrorResponse(
           'DUPLICATE_RESOURCE',
-          'Audience is already assigned to this campaign',
+          'Asset is already assigned to this campaign',
           409,
-          { campaign_id: campaignId, audience_id: audienceId },
+          { campaign_id: campaignId, asset_id },
           requestId
         )
       }
 
-      console.error('Error assigning audience:', insertError)
+      console.error('Error assigning asset:', insertError)
       return createErrorResponse(
         'DATABASE_ERROR',
-        'Failed to assign audience to campaign',
+        'Failed to assign asset to campaign',
         500,
         { error: insertError.message },
         requestId
@@ -311,16 +295,15 @@ export async function POST(
         success: true,
         data: {
           assignment,
-          message: 'Audience assigned to campaign successfully',
+          message: 'Asset assigned to campaign successfully',
         },
       },
       { status: 201 }
     )
 
-    addAgentApiHeaders(response.headers, requestId, rateLimit)
-    return response
+    return addAgentApiHeaders(response, requestId)
   } catch (error) {
-    console.error('Error in campaign audience assign endpoint:', error)
+    console.error('Error in campaign asset assign endpoint:', error)
 
     if (error instanceof SyntaxError) {
       return createErrorResponse(
@@ -343,24 +326,23 @@ export async function POST(
 }
 
 /**
- * DELETE /api/v1/agent/campaigns/[id]/audiences
- * Unassign an audience from a campaign
+ * DELETE /api/v1/agent/campaigns/[id]/assets
+ * Unassign an asset from a campaign
  *
  * Query parameters:
- * - audience_id: number
+ * - asset_id: string (UUID)
  */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const requestId = generateRequestId()
 
   // Authenticate request
-  const authResult = await authenticateAgentRequest(request)
-  if (!authResult.success) {
-    return authResult.response
+  const auth = await authenticateAgentRequest(request)
+  if (auth instanceof NextResponse) {
+    return auth // Error response
   }
-
-  const { organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
@@ -376,25 +358,14 @@ export async function DELETE(
     }
 
     const { searchParams } = new URL(request.url)
-    const audienceIdParam = searchParams.get('audience_id')
+    const assetId = searchParams.get('asset_id')
 
-    if (!audienceIdParam) {
+    if (!assetId) {
       return createErrorResponse(
         'VALIDATION_ERROR',
-        'Audience ID is required',
+        'Asset ID is required',
         400,
         undefined,
-        requestId
-      )
-    }
-
-    const audienceId = parseInt(audienceIdParam)
-    if (isNaN(audienceId)) {
-      return createErrorResponse(
-        'VALIDATION_ERROR',
-        'Audience ID must be a number',
-        400,
-        { audience_id: audienceIdParam },
         requestId
       )
     }
@@ -428,7 +399,7 @@ export async function DELETE(
       .eq('user_id', campaign.created_by)
       .single()
 
-    if (orgError || userOrg?.organization_id !== organizationId) {
+    if (orgError || userOrg?.organization_id !== auth.organizationId) {
       return createErrorResponse(
         'FORBIDDEN',
         'You do not have access to this campaign',
@@ -438,18 +409,18 @@ export async function DELETE(
       )
     }
 
-    // Unassign the audience
+    // Unassign the asset
     const { error: deleteError } = await supabase
-      .from('campaign_audiences')
+      .from('campaign_assets')
       .delete()
       .eq('campaign_id', campaignId)
-      .eq('audience_id', audienceId)
+      .eq('asset_id', assetId)
 
     if (deleteError) {
-      console.error('Error unassigning audience:', deleteError)
+      console.error('Error unassigning asset:', deleteError)
       return createErrorResponse(
         'DATABASE_ERROR',
-        'Failed to unassign audience from campaign',
+        'Failed to unassign asset from campaign',
         500,
         { error: deleteError.message },
         requestId
@@ -461,17 +432,16 @@ export async function DELETE(
         success: true,
         data: {
           campaign_id: campaignId,
-          audience_id: audienceId,
-          message: 'Audience unassigned from campaign successfully',
+          asset_id: assetId,
+          message: 'Asset unassigned from campaign successfully',
         },
       },
       { status: 200 }
     )
 
-    addAgentApiHeaders(response.headers, requestId, rateLimit)
-    return response
+    return addAgentApiHeaders(response, requestId)
   } catch (error) {
-    console.error('Error in campaign audience unassign endpoint:', error)
+    console.error('Error in campaign asset unassign endpoint:', error)
     return createErrorResponse(
       'INTERNAL_ERROR',
       'An unexpected error occurred',

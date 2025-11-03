@@ -15,14 +15,13 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const requestId = generateRequestId()
 
   // Authenticate request
-  const authResult = await authenticateAgentRequest(request)
-  if (!authResult.success) {
-    return authResult.response
+  const auth = await authenticateAgentRequest(request)
+  if (auth instanceof NextResponse) {
+    return auth // Error response
   }
-
-  const { organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
@@ -90,7 +89,7 @@ export async function GET(
       .eq('user_id', campaign.created_by)
       .single()
 
-    if (orgError || userOrg?.organization_id !== organizationId) {
+    if (orgError || userOrg?.organization_id !== auth.organizationId) {
       return createErrorResponse(
         'FORBIDDEN',
         'You do not have access to this campaign',
@@ -110,8 +109,7 @@ export async function GET(
       { status: 200 }
     )
 
-    addAgentApiHeaders(response.headers, requestId, rateLimit)
-    return response
+    return addAgentApiHeaders(response, requestId)
   } catch (error) {
     console.error('Error in campaign get endpoint:', error)
     return createErrorResponse(

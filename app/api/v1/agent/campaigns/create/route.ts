@@ -6,6 +6,7 @@ import {
   generateRequestId,
   addAgentApiHeaders,
 } from '@/lib/agent-api-middleware'
+import { validateCampaignBudget, formatBudgetError } from '@/lib/agent-budget-validator'
 import { z } from 'zod'
 
 /**
@@ -35,13 +36,13 @@ const CampaignCreateSchema = z.object({
  * }
  */
 export async function POST(request: NextRequest) {
-  const requestId = generateRequestId()
-
   // Authenticate request
-  const auth = await authenticateAgentRequest(request)
-  if (auth instanceof NextResponse) {
-    return auth // Error response
+  const authResult = await authenticateAgentRequest(request)
+  if (!authResult.success) {
+    return authResult.response
   }
+
+  const { organizationId, requestId, rateLimit } = authResult
 
   try {
     // Parse request body
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest) {
     const { data: orgMembers, error: orgError } = await supabase
       .from('organization_members')
       .select('user_id')
-      .eq('organization_id', auth.organizationId)
+      .eq('organization_id', organizationId)
       .limit(1)
       .single()
 
@@ -100,8 +101,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // TODO: Add budget validation here (Week 2)
-    // Check if total monthly budget for org would exceed $10,000
+    // Validate budget (enforce $10,000/month organizational limit)
+    const budgetValidation = await validateCampaignBudget(
+      organizationId,
+      data.budget,
+      data.start_date,
+      data.end_date
+    )
+
+    if (!budgetValidation.valid) {
+      const errorResponse = formatBudgetError(budgetValidation)
+      const response = NextResponse.json(errorResponse, { status: 400 })
+      addAgentApiHeaders(response.headers, requestId, rateLimit)
+      return response
+    }
 
     // Create campaign
     const { data: campaign, error: createError } = await supabase
@@ -145,7 +158,8 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     )
 
-    return addAgentApiHeaders(response, requestId)
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+    return response
   } catch (error) {
     console.error('Error in campaign create endpoint:', error)
 

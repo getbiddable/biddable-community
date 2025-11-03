@@ -17,13 +17,13 @@ import {
  * - status: 'active' | 'inactive' | 'all' (default: 'all')
  */
 export async function GET(request: NextRequest) {
-  const requestId = generateRequestId()
-
   // Authenticate request
-  const auth = await authenticateAgentRequest(request)
-  if (auth instanceof NextResponse) {
-    return auth // Error response
+  const authResult = await authenticateAgentRequest(request)
+  if (!authResult.success) {
+    return authResult.response
   }
+
+  const { organizationId, requestId, rateLimit } = authResult
 
   try {
     // Parse query parameters
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     const { data: orgUsers, error: orgError } = await supabase
       .from('organization_members')
       .select('user_id')
-      .eq('organization_id', auth.organizationId)
+      .eq('organization_id', organizationId)
 
     if (orgError) {
       console.error('Error fetching org users:', orgError)
@@ -100,7 +100,8 @@ export async function GET(request: NextRequest) {
       { status: 200 }
     )
 
-    return addAgentApiHeaders(response, requestId)
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+    return response
   } catch (error) {
     console.error('Error in campaigns list endpoint:', error)
     return createErrorResponse(
