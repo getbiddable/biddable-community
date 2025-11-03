@@ -1404,7 +1404,7 @@ Ready to test: Create a text ad and verify it saves to the assets table
 - Created comprehensive API documentation in docs/agent-api/ folder
   * All documentation in plain text format (.txt files)
   * Clear, concise, professional tone without emojis or fluff
-  
+
 - Documentation files created (5 files, 2100+ lines):
   * README.txt (400 lines) - Documentation index and quick reference
   * getting-started.txt (300 lines) - Quick start guide with authentication, workflows
@@ -1504,3 +1504,16 @@ Ready to test: Create a text ad and verify it saves to the assets table
 - Ready for external agents and developers to integrate
 - Clear path from getting started to advanced usage
 - All technical details documented accurately
+
+[2025-11-03] Dark Mode Background Color Update
+- Updated dark mode background from #1a1a1a to #2a2a2a
+- Reason: Previous color was too dark and violated design best practices
+- New color: #2a2a2a (RGB 42, 42, 42) - ~16% brightness
+- Changes made to app/globals.css:
+  * Line 43: --background: #2a2a2a (main background)
+  * Line 45: --card: #2a2a2a (card backgrounds)
+  * Line 47: --popover: #2a2a2a (popover/dialog backgrounds)
+  * Line 68: --sidebar: #2a2a2a (sidebar background)
+  * Line 71: --sidebar-primary-foreground: #2a2a2a (sidebar accent)
+- Result: More balanced, modern dark theme that follows design standards
+- Similar to professional apps (VS Code uses #1e1e1e, this is slightly lighter)
