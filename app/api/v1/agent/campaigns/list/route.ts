@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
   authenticateAgentRequest,
-  createErrorResponse,
-  generateRequestId,
   addAgentApiHeaders,
 } from '@/lib/agent-api-middleware'
+import { CampaignListQuerySchema } from '@/lib/agent-api-schemas'
+import {
+  validateQueryParams,
+  createValidationErrorResponse,
+  createUnknownErrorResponse,
+  DatabaseError,
+  createErrorResponse,
+} from '@/lib/agent-api-errors'
 
 /**
  * GET /api/v1/agent/campaigns/list
@@ -26,11 +32,17 @@ export async function GET(request: NextRequest) {
   const { organizationId, requestId, rateLimit } = authResult
 
   try {
-    // Parse query parameters
+    // Validate query parameters with Zod schema
     const { searchParams } = new URL(request.url)
-    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100)
-    const offset = parseInt(searchParams.get('offset') || '0')
-    const statusFilter = searchParams.get('status') || 'all'
+    const validation = validateQueryParams(searchParams, CampaignListQuerySchema)
+
+    if (!validation.success) {
+      const response = createValidationErrorResponse(validation.error, requestId)
+      addAgentApiHeaders(response.headers, requestId, rateLimit)
+      return response
+    }
+
+    const { limit, offset, status } = validation.data
 
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -42,13 +54,12 @@ export async function GET(request: NextRequest) {
 
     if (orgError) {
       console.error('Error fetching org users:', orgError)
-      return createErrorResponse(
-        'DATABASE_ERROR',
-        'Failed to fetch organization users',
-        500,
-        { error: orgError.message },
+      const response = createErrorResponse(
+        new DatabaseError('Failed to fetch organization users', { error: orgError.message }),
         requestId
       )
+      addAgentApiHeaders(response.headers, requestId, rateLimit)
+      return response
     }
 
     const userIds = orgUsers.map(u => u.user_id)
@@ -65,10 +76,10 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
 
-    // Apply status filter
-    if (statusFilter === 'active') {
+    // Apply status filter if provided
+    if (status === 'active') {
       query = query.eq('status', true)
-    } else if (statusFilter === 'inactive') {
+    } else if (status === 'inactive') {
       query = query.eq('status', false)
     }
 
@@ -76,13 +87,12 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Error fetching campaigns:', error)
-      return createErrorResponse(
-        'DATABASE_ERROR',
-        'Failed to fetch campaigns',
-        500,
-        { error: error.message },
+      const response = createErrorResponse(
+        new DatabaseError('Failed to fetch campaigns', { error: error.message }),
         requestId
       )
+      addAgentApiHeaders(response.headers, requestId, rateLimit)
+      return response
     }
 
     const response = NextResponse.json(
@@ -104,12 +114,8 @@ export async function GET(request: NextRequest) {
     return response
   } catch (error) {
     console.error('Error in campaigns list endpoint:', error)
-    return createErrorResponse(
-      'INTERNAL_ERROR',
-      'An unexpected error occurred',
-      500,
-      undefined,
-      requestId
-    )
+    const response = createUnknownErrorResponse(error, requestId)
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+    return response
   }
 }

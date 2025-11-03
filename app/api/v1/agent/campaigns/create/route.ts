@@ -2,24 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
   authenticateAgentRequest,
-  createErrorResponse,
-  generateRequestId,
   addAgentApiHeaders,
 } from '@/lib/agent-api-middleware'
-import { validateCampaignBudget, formatBudgetError } from '@/lib/agent-budget-validator'
-import { z } from 'zod'
-
-/**
- * Validation schema for campaign creation
- */
-const CampaignCreateSchema = z.object({
-  name: z.string().min(1).max(100),
-  platforms: z.array(z.enum(['google', 'youtube', 'reddit', 'meta'])).min(1),
-  budget: z.number().int().min(1).max(10000),
-  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  goal: z.string().max(500).optional(),
-})
+import { validateCampaignBudget } from '@/lib/agent-budget-validator'
+import { CampaignCreateSchema } from '@/lib/agent-api-schemas'
+import {
+  validateRequestBody,
+  createValidationErrorResponse,
+  createUnknownErrorResponse,
+  BudgetExceededError,
+  DatabaseError,
+  InternalError,
+  createErrorResponse,
+} from '@/lib/agent-api-errors'
 
 /**
  * POST /api/v1/agent/campaigns/create
@@ -45,36 +40,15 @@ export async function POST(request: NextRequest) {
   const { organizationId, requestId, rateLimit } = authResult
 
   try {
-    // Parse request body
-    const body = await request.json()
-
-    // Validate input
-    const validation = CampaignCreateSchema.safeParse(body)
+    // Validate request body with Zod schema
+    const validation = await validateRequestBody(request, CampaignCreateSchema)
     if (!validation.success) {
-      return createErrorResponse(
-        'VALIDATION_ERROR',
-        'Invalid campaign data',
-        400,
-        { errors: validation.error.flatten().fieldErrors },
-        requestId
-      )
+      const response = createValidationErrorResponse(validation.error, requestId)
+      addAgentApiHeaders(response.headers, requestId, rateLimit)
+      return response
     }
 
     const data = validation.data
-
-    // Validate date range
-    const startDate = new Date(data.start_date)
-    const endDate = new Date(data.end_date)
-
-    if (endDate <= startDate) {
-      return createErrorResponse(
-        'VALIDATION_ERROR',
-        'End date must be after start date',
-        400,
-        { start_date: data.start_date, end_date: data.end_date },
-        requestId
-      )
-    }
 
     // Use service role to bypass RLS
     const supabase = createClient(
@@ -92,13 +66,12 @@ export async function POST(request: NextRequest) {
 
     if (orgError || !orgMembers) {
       console.error('Error getting org user:', orgError)
-      return createErrorResponse(
-        'INTERNAL_ERROR',
-        'Failed to get organization user',
-        500,
-        { error: orgError?.message },
+      const response = createErrorResponse(
+        new InternalError('Failed to get organization user', { error: orgError?.message }),
         requestId
       )
+      addAgentApiHeaders(response.headers, requestId, rateLimit)
+      return response
     }
 
     // Validate budget (enforce $10,000/month organizational limit)
@@ -110,8 +83,17 @@ export async function POST(request: NextRequest) {
     )
 
     if (!budgetValidation.valid) {
-      const errorResponse = formatBudgetError(budgetValidation)
-      const response = NextResponse.json(errorResponse, { status: 400 })
+      const response = createErrorResponse(
+        new BudgetExceededError({
+          monthly_limit: budgetValidation.monthly_limit,
+          current_total: budgetValidation.current_monthly_total,
+          requested: budgetValidation.requested_budget,
+          available: budgetValidation.available_budget,
+          affected_month: budgetValidation.affected_month,
+          campaigns: budgetValidation.existing_campaigns,
+        }),
+        requestId
+      )
       addAgentApiHeaders(response.headers, requestId, rateLimit)
       return response
     }
@@ -139,13 +121,12 @@ export async function POST(request: NextRequest) {
 
     if (createError) {
       console.error('Error creating campaign:', createError)
-      return createErrorResponse(
-        'DATABASE_ERROR',
-        'Failed to create campaign',
-        500,
-        { error: createError.message },
+      const response = createErrorResponse(
+        new DatabaseError('Failed to create campaign', { error: createError.message }),
         requestId
       )
+      addAgentApiHeaders(response.headers, requestId, rateLimit)
+      return response
     }
 
     const response = NextResponse.json(
@@ -162,23 +143,8 @@ export async function POST(request: NextRequest) {
     return response
   } catch (error) {
     console.error('Error in campaign create endpoint:', error)
-
-    if (error instanceof SyntaxError) {
-      return createErrorResponse(
-        'INVALID_JSON',
-        'Invalid JSON in request body',
-        400,
-        undefined,
-        requestId
-      )
-    }
-
-    return createErrorResponse(
-      'INTERNAL_ERROR',
-      'An unexpected error occurred',
-      500,
-      undefined,
-      requestId
-    )
+    const response = createUnknownErrorResponse(error, requestId)
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+    return response
   }
 }

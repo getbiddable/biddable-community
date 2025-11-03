@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
   authenticateAgentRequest,
-  createErrorResponse,
-  generateRequestId,
   addAgentApiHeaders,
 } from '@/lib/agent-api-middleware'
+import {
+  createUnknownErrorResponse,
+  ValidationError,
+  NotFoundError,
+  ForbiddenError,
+  DatabaseError,
+  createErrorResponse,
+} from '@/lib/agent-api-errors'
 
 /**
  * GET /api/v1/agent/campaigns/[id]/get
@@ -28,13 +34,12 @@ export async function GET(
     const campaignId = parseInt(params.id)
 
     if (isNaN(campaignId)) {
-      return createErrorResponse(
-        'VALIDATION_ERROR',
-        'Invalid campaign ID',
-        400,
-        { id: params.id },
+      const response = createErrorResponse(
+        new ValidationError('Invalid campaign ID', { id: params.id }),
         requestId
       )
+      addAgentApiHeaders(response.headers, requestId, rateLimit)
+      return response
     }
 
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
@@ -62,23 +67,21 @@ export async function GET(
 
     if (error) {
       if (error.code === 'PGRST116') {
-        return createErrorResponse(
-          'RESOURCE_NOT_FOUND',
-          'Campaign not found',
-          404,
-          { campaign_id: campaignId },
+        const response = createErrorResponse(
+          new NotFoundError('Campaign', campaignId),
           requestId
         )
+        addAgentApiHeaders(response.headers, requestId, rateLimit)
+        return response
       }
 
       console.error('Error fetching campaign:', error)
-      return createErrorResponse(
-        'DATABASE_ERROR',
-        'Failed to fetch campaign',
-        500,
-        { error: error.message },
+      const response = createErrorResponse(
+        new DatabaseError('Failed to fetch campaign', { error: error.message }),
         requestId
       )
+      addAgentApiHeaders(response.headers, requestId, rateLimit)
+      return response
     }
 
     // Verify campaign belongs to organization
@@ -91,13 +94,12 @@ export async function GET(
       .single()
 
     if (orgError || userOrg?.organization_id !== organizationId) {
-      return createErrorResponse(
-        'FORBIDDEN',
-        'You do not have access to this campaign',
-        403,
-        { campaign_id: campaignId },
+      const response = createErrorResponse(
+        new ForbiddenError('You do not have access to this campaign', { campaign_id: campaignId }),
         requestId
       )
+      addAgentApiHeaders(response.headers, requestId, rateLimit)
+      return response
     }
 
     const response = NextResponse.json(
@@ -114,12 +116,8 @@ export async function GET(
     return response
   } catch (error) {
     console.error('Error in campaign get endpoint:', error)
-    return createErrorResponse(
-      'INTERNAL_ERROR',
-      'An unexpected error occurred',
-      500,
-      undefined,
-      requestId
-    )
+    const response = createUnknownErrorResponse(error, requestId)
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+    return response
   }
 }
