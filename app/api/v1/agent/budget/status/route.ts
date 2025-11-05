@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
     addAgentApiHeaders(response.headers, requestId)
 
     return response
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching budget status:', error)
 
     // Log audit entry for error (async, non-blocking)

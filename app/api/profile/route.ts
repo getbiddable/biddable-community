@@ -1,5 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { logger } from "@/lib/logger"
+
+type OrganizationMember = {
+  organization_id: string
+  role: string
+  organizations: {
+    id: string
+    name: string
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,12 +39,12 @@ export async function GET(request: NextRequest) {
       .eq("user_id", user.id)
 
     if (orgError) {
-      console.error("Error fetching organizations:", orgError)
+      logger.error("Error fetching organizations", orgError, { userId: user.id })
       return NextResponse.json({ error: orgError.message }, { status: 500 })
     }
 
     // Format the response
-    const organizations = orgMembers?.map((member: any) => ({
+    const organizations = orgMembers?.map((member: OrganizationMember) => ({
       id: member.organizations.id,
       name: member.organizations.name,
       role: member.role,
@@ -48,7 +58,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(profile, { status: 200 })
   } catch (error) {
-    console.error("Error in GET /api/profile:", error)
+    logger.error("Error in GET /api/profile", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error occurred" },
       { status: 500 }

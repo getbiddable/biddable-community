@@ -24,9 +24,9 @@ export interface AuditLogEntry {
   resource_id?: string;
   request_method: string;
   request_path: string;
-  request_body?: any;
+  request_body?: Record<string, unknown> | null;
   response_status: number;
-  response_body?: any;
+  response_body?: Record<string, unknown> | null;
   error_message?: string;
   ip_address?: string;
   user_agent?: string;
@@ -58,7 +58,7 @@ function getServiceClient() {
  * Sanitize sensitive data from objects
  * Recursively removes or masks sensitive keys
  */
-function sanitizeData(data: any): any {
+function sanitizeData(data: unknown): unknown {
   if (!data) return data;
 
   if (typeof data === 'string') {
@@ -70,12 +70,12 @@ function sanitizeData(data: any): any {
   }
 
   if (typeof data === 'object') {
-    const sanitized: any = {};
+    const sanitized: Record<string, unknown> = {};
     for (const key in data) {
       if (SENSITIVE_KEYS.some(sk => key.toLowerCase().includes(sk))) {
         sanitized[key] = '[REDACTED]';
       } else {
-        sanitized[key] = sanitizeData(data[key]);
+        sanitized[key] = sanitizeData((data as Record<string, unknown>)[key]);
       }
     }
     return sanitized;
@@ -87,7 +87,7 @@ function sanitizeData(data: any): any {
 /**
  * Truncate large objects to prevent database bloat
  */
-function truncateData(data: any): any {
+function truncateData(data: unknown): unknown {
   if (!data) return data;
 
   const jsonString = JSON.stringify(data);
@@ -168,13 +168,13 @@ export function extractAction(method: string, path: string): string {
  */
 export function extractResourceInfo(
   action: string,
-  responseBody: any
+  responseBody: Record<string, unknown> | null | undefined
 ): { resource_type?: string; resource_id?: string } {
   if (!responseBody || !responseBody.data) {
     return {};
   }
 
-  const data = responseBody.data;
+  const data = responseBody.data as Record<string, unknown>;
   const resource_type = action.split('.')[0]; // campaigns, assets, audiences
 
   // Try to extract ID from response
@@ -191,12 +191,12 @@ export function extractResourceInfo(
     resource_id = String(data.audience_id);
   }
   // Check nested objects (e.g., data.campaign.id, data.asset.id, data.audience.id)
-  else if (data.campaign && data.campaign.id !== undefined) {
-    resource_id = String(data.campaign.id);
-  } else if (data.asset && data.asset.id !== undefined) {
-    resource_id = String(data.asset.id);
-  } else if (data.audience && data.audience.id !== undefined) {
-    resource_id = String(data.audience.id);
+  else if (data.campaign && typeof data.campaign === 'object' && (data.campaign as Record<string, unknown>).id !== undefined) {
+    resource_id = String((data.campaign as Record<string, unknown>).id);
+  } else if (data.asset && typeof data.asset === 'object' && (data.asset as Record<string, unknown>).id !== undefined) {
+    resource_id = String((data.asset as Record<string, unknown>).id);
+  } else if (data.audience && typeof data.audience === 'object' && (data.audience as Record<string, unknown>).id !== undefined) {
+    resource_id = String((data.audience as Record<string, unknown>).id);
   }
 
   return { resource_type, resource_id };
@@ -249,9 +249,9 @@ export function createAuditEntry(
   apiKeyId: string,
   organizationId: string,
   request: Request,
-  response: { status: number; body?: any },
+  response: { status: number; body?: Record<string, unknown> | null },
   startTime: number,
-  requestBody?: any,
+  requestBody?: Record<string, unknown> | null,
   errorMessage?: string
 ): AuditLogEntry {
   const url = new URL(request.url);
@@ -292,13 +292,13 @@ export async function withAuditLogging(
   startTime: number,
   handler: () => Promise<Response>
 ): Promise<Response> {
-  let requestBody: any;
+  let requestBody: Record<string, unknown> | null = null;
 
   try {
     // Try to parse request body for logging
     if (request.method !== 'GET' && request.method !== 'DELETE') {
       try {
-        requestBody = await request.clone().json();
+        requestBody = await request.clone().json() as Record<string, unknown>;
       } catch {
         // Body might not be JSON, that's okay
       }
@@ -312,7 +312,7 @@ export async function withAuditLogging(
     const response = await handler();
 
     // Parse response body for logging
-    let responseBody: any;
+    let responseBody: Record<string, unknown> | null = null;
     try {
       const responseClone = response.clone();
       responseBody = await responseClone.json();
@@ -335,7 +335,7 @@ export async function withAuditLogging(
     });
 
     return response;
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Log failed request
     logAuditEntry(
       createAuditEntry(

@@ -75,17 +75,35 @@ function campaignOverlapsMonth(campaign: Campaign, year: number, month: number):
 /**
  * Calculate how much of a campaign's budget applies to a specific month
  *
- * For simplicity, we use the full campaign budget if it overlaps the month.
- * A more sophisticated approach would pro-rate based on days in the month.
+ * Pro-rates the budget based on the number of days the campaign runs in the month
+ * compared to the total campaign duration.
  */
 function getCampaignBudgetForMonth(campaign: Campaign, year: number, month: number): number {
   if (!campaignOverlapsMonth(campaign, year, month)) {
     return 0
   }
 
-  // Simple approach: count full budget if campaign overlaps month
-  // TODO: Pro-rate based on actual days in month for more accuracy
-  return campaign.budget
+  const campaignStart = new Date(campaign.start_date)
+  const campaignEnd = new Date(campaign.end_date)
+
+  // Create date range for the target month
+  const monthStart = new Date(year, month - 1, 1)
+  const monthEnd = new Date(year, month, 0, 23, 59, 59) // Last day of month
+
+  // Calculate overlap: the actual start and end dates within this month
+  const overlapStart = campaignStart > monthStart ? campaignStart : monthStart
+  const overlapEnd = campaignEnd < monthEnd ? campaignEnd : monthEnd
+
+  // Calculate days in overlap (add 1 to include both start and end day)
+  const daysInOverlap = Math.ceil((overlapEnd.getTime() - overlapStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
+
+  // Calculate total campaign duration in days (add 1 to include both start and end day)
+  const totalCampaignDays = Math.ceil((campaignEnd.getTime() - campaignStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
+
+  // Pro-rate the budget based on the proportion of campaign days in this month
+  const proRatedBudget = (campaign.budget * daysInOverlap) / totalCampaignDays
+
+  return Math.round(proRatedBudget) // Round to nearest dollar
 }
 
 /**
