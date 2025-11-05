@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { logger } from '@/lib/logger'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -118,7 +119,7 @@ export default function AgentLogsViewer() {
       setLogs(data || [])
       setTotalCount(count || 0)
     } catch (error) {
-      console.error('Error fetching audit logs:', error)
+      logger.error('Error fetching audit logs', error)
     } finally {
       setLoading(false)
     }

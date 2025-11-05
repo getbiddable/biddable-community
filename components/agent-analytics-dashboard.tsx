@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { logger } from '@/lib/logger'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
@@ -54,7 +55,6 @@ export default function AgentAnalyticsDashboard() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState('7d') // 1d, 7d, 30d, all
-  const [budgetData, setBudgetData] = useState<any>(null)
 
   const supabase = createClient()
 
@@ -203,27 +203,9 @@ export default function AgentAnalyticsDashboard() {
         recentErrors: recentErrors || [],
       })
     } catch (error) {
-      console.error('Error fetching analytics:', error)
+      logger.error('Error fetching analytics', error)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const fetchBudgetData = async () => {
-    try {
-      // Fetch budget status for current month
-      const response = await fetch('/api/v1/agent/budget/status', {
-        headers: {
-          'Authorization': 'Bearer [API_KEY]', // This would need proper handling
-        },
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setBudgetData(data.data)
-      }
-    } catch (error) {
-      console.error('Error fetching budget data:', error)
     }
   }
 

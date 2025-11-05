@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { encrypt, decrypt } from '@/lib/encryption'
 
 /**
  * API Key Format: bbl_[32 random characters]
@@ -249,4 +250,93 @@ export async function updateApiKey(
   }
 
   return data
+}
+
+/**
+ * Get or create an encrypted API key for the hosted agent
+ *
+ * This function is used by the hosted agent backend to obtain an API key
+ * for making requests to the Agent API. The key is:
+ * - Stored encrypted in the database (encrypted_key column)
+ * - Decrypted server-side only when needed
+ * - Never exposed to the client or LLM
+ *
+ * @param organizationId - The organization UUID
+ * @returns The plain text API key (server-side only!)
+ */
+export async function getOrCreateHostedAgentApiKey(organizationId: string): Promise<string> {
+  // Use service role key to bypass RLS
+  const supabase = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
+  )
+
+  const AGENT_KEY_NAME = 'Hosted Agent (Auto-generated)'
+
+  // Check if encrypted key already exists
+  const { data: existingKey, error: fetchError } = await supabase
+    .from('api_keys')
+    .select('id, encrypted_key')
+    .eq('organization_id', organizationId)
+    .eq('name', AGENT_KEY_NAME)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch hosted agent API key: ${fetchError.message}`)
+  }
+
+  // If key exists and has encrypted_key, decrypt and return it
+  if (existingKey && existingKey.encrypted_key) {
+    try {
+      const decryptedKey = decrypt(existingKey.encrypted_key)
+      return decryptedKey
+    } catch (error) {
+      console.error('Failed to decrypt existing agent API key:', error)
+      throw new Error('Failed to decrypt agent API key - encryption key may have changed')
+    }
+  }
+
+  // No encrypted key exists, create a new one
+  const apiKey = generateApiKey()
+  const keyHash = await hashApiKey(apiKey)
+  const keyPrefix = getKeyPrefix(apiKey)
+  const encryptedKey = encrypt(apiKey)
+
+  // Insert new API key with encrypted version
+  const { data: newKey, error: insertError } = await supabase
+    .from('api_keys')
+    .insert({
+      organization_id: organizationId,
+      created_by: organizationId, // System-generated, use org ID as creator
+      key_hash: keyHash,
+      key_prefix: keyPrefix,
+      encrypted_key: encryptedKey,
+      name: AGENT_KEY_NAME,
+      description: 'Auto-generated API key for hosted agent. Used server-side only.',
+      permissions: {},
+      metadata: {
+        auto_generated: true,
+        purpose: 'hosted_agent',
+        created_at: new Date().toISOString(),
+      },
+      is_active: true,
+    })
+    .select('id')
+    .single()
+
+  if (insertError) {
+    throw new Error(`Failed to create hosted agent API key: ${insertError.message}`)
+  }
+
+  console.log(`Created new hosted agent API key for organization ${organizationId}`)
+
+  // Return the plain text API key (only used server-side!)
+  return apiKey
 }
