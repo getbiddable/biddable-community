@@ -12,6 +12,7 @@ import {
   DatabaseError,
   createErrorResponse,
 } from '@/lib/agent-api-errors'
+import { logAuditEntry, createAuditEntry } from '@/lib/agent-audit-logger'
 
 /**
  * GET /api/v1/agent/campaigns/[id]/get
@@ -21,6 +22,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const startTime = Date.now()
 
   // Authenticate request
   const authResult = await authenticateAgentRequest(request)
@@ -28,17 +30,38 @@ export async function GET(
     return authResult.response
   }
 
-  const { organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
 
     if (isNaN(campaignId)) {
+      const errorBody = {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid campaign ID',
+        }
+      }
       const response = createErrorResponse(
         new ValidationError('Invalid campaign ID', { id: params.id }),
         requestId
       )
       addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+      // Log audit entry for validation error
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: errorBody },
+          startTime,
+          undefined,
+          'Invalid campaign ID'
+        )
+      )
+
       return response
     }
 
@@ -67,20 +90,62 @@ export async function GET(
 
     if (error) {
       if (error.code === 'PGRST116') {
+        const errorBody = {
+          success: false,
+          error: {
+            code: 'NOT_FOUND',
+            message: 'Campaign not found',
+          }
+        }
         const response = createErrorResponse(
           new NotFoundError('Campaign', campaignId),
           requestId
         )
         addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+        // Log audit entry for not found error
+        logAuditEntry(
+          createAuditEntry(
+            apiKeyId,
+            organizationId,
+            request,
+            { status: 404, body: errorBody },
+            startTime,
+            undefined,
+            'Campaign not found'
+          )
+        )
+
         return response
       }
 
       console.error('Error fetching campaign:', error)
+      const errorBody = {
+        success: false,
+        error: {
+          code: 'DATABASE_ERROR',
+          message: 'Failed to fetch campaign',
+        }
+      }
       const response = createErrorResponse(
         new DatabaseError('Failed to fetch campaign', { error: error.message }),
         requestId
       )
       addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+      // Log audit entry for database error
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 500, body: errorBody },
+          startTime,
+          undefined,
+          error.message
+        )
+      )
+
       return response
     }
 
@@ -94,30 +159,76 @@ export async function GET(
       .single()
 
     if (orgError || userOrg?.organization_id !== organizationId) {
+      const errorBody = {
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'You do not have access to this campaign',
+        }
+      }
       const response = createErrorResponse(
         new ForbiddenError('You do not have access to this campaign', { campaign_id: campaignId }),
         requestId
       )
       addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+      // Log audit entry for forbidden error
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 403, body: errorBody },
+          startTime,
+          undefined,
+          'Access forbidden to campaign'
+        )
+      )
+
       return response
     }
 
-    const response = NextResponse.json(
-      {
-        success: true,
-        data: {
-          campaign,
-        },
+    const responseBody = {
+      success: true,
+      data: {
+        campaign,
       },
-      { status: 200 }
-    )
+    }
+
+    const response = NextResponse.json(responseBody, { status: 200 })
 
     addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    // Log audit entry (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 200, body: responseBody },
+        startTime
+      )
+    )
+
     return response
   } catch (error) {
     console.error('Error in campaign get endpoint:', error)
     const response = createUnknownErrorResponse(error, requestId)
     addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    // Log audit entry for error (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 500 },
+        startTime,
+        undefined,
+        error instanceof Error ? error.message : String(error)
+      )
+    )
+
     return response
   }
 }

@@ -12,6 +12,7 @@ import {
   DatabaseError,
   createErrorResponse,
 } from '@/lib/agent-api-errors'
+import { logAuditEntry, createAuditEntry } from '@/lib/agent-audit-logger'
 
 /**
  * GET /api/v1/agent/campaigns/list
@@ -23,13 +24,15 @@ import {
  * - status: 'active' | 'inactive' | 'all' (default: 'all')
  */
 export async function GET(request: NextRequest) {
+  const startTime = Date.now()
+
   // Authenticate request
   const authResult = await authenticateAgentRequest(request)
   if (!authResult.success) {
     return authResult.response
   }
 
-  const { organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
 
   try {
     // Validate query parameters with Zod schema
@@ -39,6 +42,21 @@ export async function GET(request: NextRequest) {
     if (!validation.success) {
       const response = createValidationErrorResponse(validation.error, requestId)
       addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+      // Log audit entry for validation error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: responseBody },
+          startTime,
+          undefined,
+          'Validation error'
+        )
+      )
+
       return response
     }
 
@@ -54,11 +72,32 @@ export async function GET(request: NextRequest) {
 
     if (orgError) {
       console.error('Error fetching org users:', orgError)
+      const errorBody = {
+        success: false,
+        error: {
+          code: 'DATABASE_ERROR',
+          message: 'Failed to fetch organization users',
+        }
+      }
       const response = createErrorResponse(
         new DatabaseError('Failed to fetch organization users', { error: orgError.message }),
         requestId
       )
       addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+      // Log audit entry for database error
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 500, body: errorBody },
+          startTime,
+          undefined,
+          orgError.message
+        )
+      )
+
       return response
     }
 
@@ -87,35 +126,81 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Error fetching campaigns:', error)
+      const errorBody = {
+        success: false,
+        error: {
+          code: 'DATABASE_ERROR',
+          message: 'Failed to fetch campaigns',
+        }
+      }
       const response = createErrorResponse(
         new DatabaseError('Failed to fetch campaigns', { error: error.message }),
         requestId
       )
       addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+      // Log audit entry for database error
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 500, body: errorBody },
+          startTime,
+          undefined,
+          error.message
+        )
+      )
+
       return response
     }
 
-    const response = NextResponse.json(
-      {
-        success: true,
-        data: {
-          campaigns: campaigns || [],
-          pagination: {
-            limit,
-            offset,
-            total: count || 0,
-          },
+    const responseBody = {
+      success: true,
+      data: {
+        campaigns: campaigns || [],
+        pagination: {
+          limit,
+          offset,
+          total: count || 0,
         },
       },
-      { status: 200 }
-    )
+    }
+
+    const response = NextResponse.json(responseBody, { status: 200 })
 
     addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    // Log audit entry (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 200, body: responseBody },
+        startTime
+      )
+    )
+
     return response
   } catch (error) {
     console.error('Error in campaigns list endpoint:', error)
     const response = createUnknownErrorResponse(error, requestId)
     addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    // Log audit entry for error (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 500 },
+        startTime,
+        undefined,
+        error instanceof Error ? error.message : String(error)
+      )
+    )
+
     return response
   }
 }

@@ -6,6 +6,7 @@ import {
   generateRequestId,
   addAgentApiHeaders,
 } from '@/lib/agent-api-middleware'
+import { logAuditEntry, createAuditEntry } from '@/lib/agent-audit-logger'
 
 /**
  * GET /api/v1/agent/campaigns/[id]/audiences
@@ -15,6 +16,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const startTime = Date.now()
 
   // Authenticate request
   const authResult = await authenticateAgentRequest(request)
@@ -22,19 +24,35 @@ export async function GET(
     return authResult.response
   }
 
-  const { organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
 
     if (isNaN(campaignId)) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'VALIDATION_ERROR',
         'Invalid campaign ID',
         400,
         { id: params.id },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: responseBody },
+          startTime,
+          undefined,
+          'Invalid campaign ID'
+        )
+      )
+
+      return response
     }
 
     const supabase = createClient(
@@ -50,13 +68,29 @@ export async function GET(
       .single()
 
     if (campaignError || !campaign) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'RESOURCE_NOT_FOUND',
         'Campaign not found',
         404,
         { campaign_id: campaignId },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 404, body: responseBody },
+          startTime,
+          undefined,
+          'Campaign not found'
+        )
+      )
+
+      return response
     }
 
     // Verify campaign creator belongs to organization
@@ -67,13 +101,29 @@ export async function GET(
       .single()
 
     if (orgError || userOrg?.organization_id !== organizationId) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'FORBIDDEN',
         'You do not have access to this campaign',
         403,
         { campaign_id: campaignId },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 403, body: responseBody },
+          startTime,
+          undefined,
+          'Forbidden: You do not have access to this campaign'
+        )
+      )
+
+      return response
     }
 
     // Fetch assigned audiences with full details
@@ -103,31 +153,72 @@ export async function GET(
 
     if (assignmentsError) {
       console.error('Error fetching campaign audiences:', assignmentsError)
-      return createErrorResponse(
+      const response = createErrorResponse(
         'DATABASE_ERROR',
         'Failed to fetch campaign audiences',
         500,
         { error: assignmentsError.message },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 500, body: responseBody },
+          startTime,
+          undefined,
+          'Failed to fetch campaign audiences'
+        )
+      )
+
+      return response
     }
 
-    const response = NextResponse.json(
-      {
-        success: true,
-        data: {
-          campaign_id: campaignId,
-          audiences: assignments || [],
-          count: assignments?.length || 0,
-        },
+    const responseBody = {
+      success: true,
+      data: {
+        campaign_id: campaignId,
+        audiences: assignments || [],
+        count: assignments?.length || 0,
       },
-      { status: 200 }
+    }
+
+    // Log audit entry (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 200, body: responseBody },
+        startTime,
+        undefined
+      )
     )
+
+    const response = NextResponse.json(responseBody, { status: 200 })
 
     addAgentApiHeaders(response.headers, requestId, rateLimit)
     return response
   } catch (error) {
     console.error('Error in campaign audiences list endpoint:', error)
+
+    // Log audit entry for error (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 500 },
+        startTime,
+        undefined,
+        error instanceof Error ? error.message : String(error)
+      )
+    )
+
     return createErrorResponse(
       'INTERNAL_ERROR',
       'An unexpected error occurred',
@@ -151,6 +242,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const startTime = Date.now()
 
   // Authenticate request
   const authResult = await authenticateAgentRequest(request)
@@ -158,19 +250,35 @@ export async function POST(
     return authResult.response
   }
 
-  const { organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
 
     if (isNaN(campaignId)) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'VALIDATION_ERROR',
         'Invalid campaign ID',
         400,
         { id: params.id },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: responseBody },
+          startTime,
+          undefined,
+          'Invalid campaign ID'
+        )
+      )
+
+      return response
     }
 
     // Parse request body
@@ -178,24 +286,56 @@ export async function POST(
     const { audience_id } = body
 
     if (!audience_id) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'VALIDATION_ERROR',
         'Audience ID is required',
         400,
         undefined,
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: responseBody },
+          startTime,
+          body,
+          'Audience ID is required'
+        )
+      )
+
+      return response
     }
 
     const audienceId = parseInt(audience_id)
     if (isNaN(audienceId)) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'VALIDATION_ERROR',
         'Audience ID must be a number',
         400,
         { audience_id },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: responseBody },
+          startTime,
+          body,
+          'Audience ID must be a number'
+        )
+      )
+
+      return response
     }
 
     const supabase = createClient(
@@ -211,13 +351,29 @@ export async function POST(
       .single()
 
     if (campaignError || !campaign) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'RESOURCE_NOT_FOUND',
         'Campaign not found',
         404,
         { campaign_id: campaignId },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 404, body: responseBody },
+          startTime,
+          body,
+          'Campaign not found'
+        )
+      )
+
+      return response
     }
 
     // Verify campaign creator belongs to organization
@@ -228,13 +384,29 @@ export async function POST(
       .single()
 
     if (orgError || userOrg?.organization_id !== organizationId) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'FORBIDDEN',
         'You do not have access to this campaign',
         403,
         { campaign_id: campaignId },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 403, body: responseBody },
+          startTime,
+          body,
+          'Forbidden: You do not have access to this campaign'
+        )
+      )
+
+      return response
     }
 
     // Verify audience exists and belongs to organization
@@ -246,13 +418,29 @@ export async function POST(
       .single()
 
     if (audienceError || !audience) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'RESOURCE_NOT_FOUND',
         'Audience not found or does not belong to your organization',
         404,
         { audience_id: audienceId },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 404, body: responseBody },
+          startTime,
+          body,
+          'Audience not found or does not belong to your organization'
+        )
+      )
+
+      return response
     }
 
     // Get a user from the organization to use as assigned_by
@@ -264,13 +452,29 @@ export async function POST(
       .single()
 
     if (memberError || !orgMember) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'INTERNAL_ERROR',
         'Failed to get organization user',
         500,
         { error: memberError?.message },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 500, body: responseBody },
+          startTime,
+          body,
+          'Failed to get organization user'
+        )
+      )
+
+      return response
     }
 
     // Assign audience to campaign
@@ -287,49 +491,121 @@ export async function POST(
     if (insertError) {
       // Check if it's a duplicate error
       if (insertError.code === '23505') {
-        return createErrorResponse(
+        const response = createErrorResponse(
           'DUPLICATE_RESOURCE',
           'Audience is already assigned to this campaign',
           409,
           { campaign_id: campaignId, audience_id: audienceId },
           requestId
         )
+
+        // Log audit entry for error
+        const responseBody = await response.clone().json()
+        logAuditEntry(
+          createAuditEntry(
+            apiKeyId,
+            organizationId,
+            request,
+            { status: 409, body: responseBody },
+            startTime,
+            body,
+            'Audience is already assigned to this campaign'
+          )
+        )
+
+        return response
       }
 
       console.error('Error assigning audience:', insertError)
-      return createErrorResponse(
+      const response = createErrorResponse(
         'DATABASE_ERROR',
         'Failed to assign audience to campaign',
         500,
         { error: insertError.message },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 500, body: responseBody },
+          startTime,
+          body,
+          'Failed to assign audience to campaign'
+        )
+      )
+
+      return response
     }
 
-    const response = NextResponse.json(
-      {
-        success: true,
-        data: {
-          assignment,
-          message: 'Audience assigned to campaign successfully',
-        },
+    const responseBody = {
+      success: true,
+      data: {
+        assignment,
+        message: 'Audience assigned to campaign successfully',
       },
-      { status: 201 }
+    }
+
+    // Log audit entry (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 201, body: responseBody },
+        startTime,
+        body
+      )
     )
+
+    const response = NextResponse.json(responseBody, { status: 201 })
 
     addAgentApiHeaders(response.headers, requestId, rateLimit)
     return response
   } catch (error) {
     console.error('Error in campaign audience assign endpoint:', error)
 
+    // Log audit entry for error (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 500 },
+        startTime,
+        undefined,
+        error instanceof Error ? error.message : String(error)
+      )
+    )
+
     if (error instanceof SyntaxError) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'INVALID_JSON',
         'Invalid JSON in request body',
         400,
         undefined,
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: responseBody },
+          startTime,
+          undefined,
+          'Invalid JSON in request body'
+        )
+      )
+
+      return response
     }
 
     return createErrorResponse(
@@ -353,6 +629,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const startTime = Date.now()
 
   // Authenticate request
   const authResult = await authenticateAgentRequest(request)
@@ -360,43 +637,91 @@ export async function DELETE(
     return authResult.response
   }
 
-  const { organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
 
     if (isNaN(campaignId)) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'VALIDATION_ERROR',
         'Invalid campaign ID',
         400,
         { id: params.id },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: responseBody },
+          startTime,
+          undefined,
+          'Invalid campaign ID'
+        )
+      )
+
+      return response
     }
 
     const { searchParams } = new URL(request.url)
     const audienceIdParam = searchParams.get('audience_id')
 
     if (!audienceIdParam) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'VALIDATION_ERROR',
         'Audience ID is required',
         400,
         undefined,
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: responseBody },
+          startTime,
+          undefined,
+          'Audience ID is required'
+        )
+      )
+
+      return response
     }
 
     const audienceId = parseInt(audienceIdParam)
     if (isNaN(audienceId)) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'VALIDATION_ERROR',
         'Audience ID must be a number',
         400,
         { audience_id: audienceIdParam },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: responseBody },
+          startTime,
+          undefined,
+          'Audience ID must be a number'
+        )
+      )
+
+      return response
     }
 
     const supabase = createClient(
@@ -412,13 +737,29 @@ export async function DELETE(
       .single()
 
     if (campaignError || !campaign) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'RESOURCE_NOT_FOUND',
         'Campaign not found',
         404,
         { campaign_id: campaignId },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 404, body: responseBody },
+          startTime,
+          undefined,
+          'Campaign not found'
+        )
+      )
+
+      return response
     }
 
     // Verify campaign creator belongs to organization
@@ -429,13 +770,29 @@ export async function DELETE(
       .single()
 
     if (orgError || userOrg?.organization_id !== organizationId) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'FORBIDDEN',
         'You do not have access to this campaign',
         403,
         { campaign_id: campaignId },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 403, body: responseBody },
+          startTime,
+          undefined,
+          'Forbidden: You do not have access to this campaign'
+        )
+      )
+
+      return response
     }
 
     // Unassign the audience
@@ -447,31 +804,72 @@ export async function DELETE(
 
     if (deleteError) {
       console.error('Error unassigning audience:', deleteError)
-      return createErrorResponse(
+      const response = createErrorResponse(
         'DATABASE_ERROR',
         'Failed to unassign audience from campaign',
         500,
         { error: deleteError.message },
         requestId
       )
+
+      // Log audit entry for error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 500, body: responseBody },
+          startTime,
+          undefined,
+          'Failed to unassign audience from campaign'
+        )
+      )
+
+      return response
     }
 
-    const response = NextResponse.json(
-      {
-        success: true,
-        data: {
-          campaign_id: campaignId,
-          audience_id: audienceId,
-          message: 'Audience unassigned from campaign successfully',
-        },
+    const responseBody = {
+      success: true,
+      data: {
+        campaign_id: campaignId,
+        audience_id: audienceId,
+        message: 'Audience unassigned from campaign successfully',
       },
-      { status: 200 }
+    }
+
+    // Log audit entry (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 200, body: responseBody },
+        startTime,
+        undefined
+      )
     )
+
+    const response = NextResponse.json(responseBody, { status: 200 })
 
     addAgentApiHeaders(response.headers, requestId, rateLimit)
     return response
   } catch (error) {
     console.error('Error in campaign audience unassign endpoint:', error)
+
+    // Log audit entry for error (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 500 },
+        startTime,
+        undefined,
+        error instanceof Error ? error.message : String(error)
+      )
+    )
+
     return createErrorResponse(
       'INTERNAL_ERROR',
       'An unexpected error occurred',

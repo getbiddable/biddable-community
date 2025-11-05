@@ -15,6 +15,7 @@ import {
   InternalError,
   createErrorResponse,
 } from '@/lib/agent-api-errors'
+import { logAuditEntry, createAuditEntry } from '@/lib/agent-audit-logger'
 
 /**
  * POST /api/v1/agent/campaigns/create
@@ -31,13 +32,15 @@ import {
  * }
  */
 export async function POST(request: NextRequest) {
+  const startTime = Date.now()
+
   // Authenticate request
   const authResult = await authenticateAgentRequest(request)
   if (!authResult.success) {
     return authResult.response
   }
 
-  const { organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
 
   try {
     // Validate request body with Zod schema
@@ -45,6 +48,21 @@ export async function POST(request: NextRequest) {
     if (!validation.success) {
       const response = createValidationErrorResponse(validation.error, requestId)
       addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+      // Log audit entry for validation error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: responseBody },
+          startTime,
+          undefined,
+          'Validation error'
+        )
+      )
+
       return response
     }
 
@@ -66,11 +84,32 @@ export async function POST(request: NextRequest) {
 
     if (orgError || !orgMembers) {
       console.error('Error getting org user:', orgError)
+      const errorBody = {
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Failed to get organization user',
+        }
+      }
       const response = createErrorResponse(
         new InternalError('Failed to get organization user', { error: orgError?.message }),
         requestId
       )
       addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+      // Log audit entry for internal error
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 500, body: errorBody },
+          startTime,
+          data,
+          orgError?.message || 'Failed to get organization user'
+        )
+      )
+
       return response
     }
 
@@ -83,6 +122,13 @@ export async function POST(request: NextRequest) {
     )
 
     if (!budgetValidation.valid) {
+      const errorBody = {
+        success: false,
+        error: {
+          code: 'BUDGET_EXCEEDED',
+          message: 'Budget limit exceeded',
+        }
+      }
       const response = createErrorResponse(
         new BudgetExceededError({
           monthly_limit: budgetValidation.monthly_limit,
@@ -95,6 +141,20 @@ export async function POST(request: NextRequest) {
         requestId
       )
       addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+      // Log audit entry for budget exceeded error
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: errorBody },
+          startTime,
+          data,
+          'Budget limit exceeded'
+        )
+      )
+
       return response
     }
 
@@ -121,30 +181,77 @@ export async function POST(request: NextRequest) {
 
     if (createError) {
       console.error('Error creating campaign:', createError)
+      const errorBody = {
+        success: false,
+        error: {
+          code: 'DATABASE_ERROR',
+          message: 'Failed to create campaign',
+        }
+      }
       const response = createErrorResponse(
         new DatabaseError('Failed to create campaign', { error: createError.message }),
         requestId
       )
       addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+      // Log audit entry for database error
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 500, body: errorBody },
+          startTime,
+          data,
+          createError.message
+        )
+      )
+
       return response
     }
 
-    const response = NextResponse.json(
-      {
-        success: true,
-        data: {
-          campaign,
-        },
+    const responseBody = {
+      success: true,
+      data: {
+        campaign,
       },
-      { status: 201 }
-    )
+    }
+
+    const response = NextResponse.json(responseBody, { status: 201 })
 
     addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    // Log audit entry (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 201, body: responseBody },
+        startTime,
+        data
+      )
+    )
+
     return response
   } catch (error) {
     console.error('Error in campaign create endpoint:', error)
     const response = createUnknownErrorResponse(error, requestId)
     addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    // Log audit entry for error (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 500 },
+        startTime,
+        undefined,
+        error instanceof Error ? error.message : String(error)
+      )
+    )
+
     return response
   }
 }

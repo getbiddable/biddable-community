@@ -6,6 +6,7 @@ import {
   generateRequestId,
   addAgentApiHeaders,
 } from '@/lib/agent-api-middleware'
+import { logAuditEntry, createAuditEntry } from '@/lib/agent-audit-logger'
 
 /**
  * GET /api/v1/agent/assets/list
@@ -17,6 +18,7 @@ import {
  * - type: 'image' | 'video' | 'text' | 'reddit_ad' | 'all' (default: 'all')
  */
 export async function GET(request: NextRequest) {
+  const startTime = Date.now()
 
   // Authenticate request
   const authResult = await authenticateAgentRequest(request)
@@ -24,7 +26,7 @@ export async function GET(request: NextRequest) {
     return authResult.response
   }
 
-  const { organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
 
   try {
     // Parse query parameters
@@ -55,34 +57,75 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Error fetching assets:', error)
-      return createErrorResponse(
+      const response = createErrorResponse(
         'DATABASE_ERROR',
         'Failed to fetch assets',
         500,
         { error: error.message },
         requestId
       )
+
+      // Log audit entry for database error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 500, body: responseBody },
+          startTime,
+          undefined,
+          error.message
+        )
+      )
+
+      return response
     }
 
-    const response = NextResponse.json(
-      {
-        success: true,
-        data: {
-          assets: assets || [],
-          pagination: {
-            limit,
-            offset,
-            total: count || 0,
-          },
+    const responseBody = {
+      success: true,
+      data: {
+        assets: assets || [],
+        pagination: {
+          limit,
+          offset,
+          total: count || 0,
         },
       },
-      { status: 200 }
+    }
+
+    // Log audit entry (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 200, body: responseBody },
+        startTime,
+        undefined
+      )
     )
+
+    const response = NextResponse.json(responseBody, { status: 200 })
 
     addAgentApiHeaders(response.headers, requestId, rateLimit)
     return response
   } catch (error) {
     console.error('Error in assets list endpoint:', error)
+
+    // Log audit entry for error (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 500 },
+        startTime,
+        undefined,
+        error instanceof Error ? error.message : String(error)
+      )
+    )
+
     return createErrorResponse(
       'INTERNAL_ERROR',
       'An unexpected error occurred',

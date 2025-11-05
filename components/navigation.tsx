@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { BarChart3, ImageIcon, LayoutDashboard, LogOut, User, Target, Users, Menu, X } from "lucide-react"
+import { BarChart3, ImageIcon, LayoutDashboard, LogOut, User, Target, Users, Menu, X, FileText, TrendingUp } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { useAuth } from "@/lib/auth-context"
 import { signOut } from "@/lib/auth"
@@ -15,6 +15,8 @@ const navigation = [
   { name: "Audiences", href: "/audiences", icon: Users },
   { name: "Creative", href: "/assets", icon: ImageIcon },
   { name: "Reporting", href: "/reporting", icon: BarChart3, disabled: true },
+  { name: "Agent Logs", href: "/agent-logs", icon: FileText },
+  { name: "Agent Analytics", href: "/agent-analytics", icon: TrendingUp },
 ]
 
 export function Navigation() {

@@ -8,6 +8,7 @@ import {
 } from '@/lib/agent-api-middleware'
 import { validateCampaignBudget, formatBudgetError } from '@/lib/agent-budget-validator'
 import { z } from 'zod'
+import { logAuditEntry, createAuditEntry } from '@/lib/agent-audit-logger'
 
 /**
  * Validation schema for campaign updates (all fields optional)
@@ -30,25 +31,43 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const startTime = Date.now()
+
   // Authenticate request
   const authResult = await authenticateAgentRequest(request)
   if (!authResult.success) {
     return authResult.response
   }
 
-  const { organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
 
   try {
     const campaignId = parseInt(params.id)
 
     if (isNaN(campaignId)) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'VALIDATION_ERROR',
         'Invalid campaign ID',
         400,
         { id: params.id },
         requestId
       )
+
+      // Log audit entry for validation error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: responseBody },
+          startTime,
+          undefined,
+          'Invalid campaign ID'
+        )
+      )
+
+      return response
     }
 
     // Parse request body
@@ -57,13 +76,29 @@ export async function PATCH(
     // Validate input
     const validation = CampaignUpdateSchema.safeParse(body)
     if (!validation.success) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'VALIDATION_ERROR',
         'Invalid campaign data',
         400,
         { errors: validation.error.flatten().fieldErrors },
         requestId
       )
+
+      // Log audit entry for validation error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 400, body: responseBody },
+          startTime,
+          body,
+          'Invalid campaign data'
+        )
+      )
+
+      return response
     }
 
     const data = validation.data
@@ -74,13 +109,29 @@ export async function PATCH(
       const endDate = new Date(data.end_date)
 
       if (endDate <= startDate) {
-        return createErrorResponse(
+        const response = createErrorResponse(
           'VALIDATION_ERROR',
           'End date must be after start date',
           400,
           { start_date: data.start_date, end_date: data.end_date },
           requestId
         )
+
+        // Log audit entry for validation error
+        const responseBody = await response.clone().json()
+        logAuditEntry(
+          createAuditEntry(
+            apiKeyId,
+            organizationId,
+            request,
+            { status: 400, body: responseBody },
+            startTime,
+            data,
+            'End date must be after start date'
+          )
+        )
+
+        return response
       }
     }
 
@@ -94,13 +145,29 @@ export async function PATCH(
       .single()
 
     if (fetchError || !existing) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'RESOURCE_NOT_FOUND',
         'Campaign not found',
         404,
         { campaign_id: campaignId },
         requestId
       )
+
+      // Log audit entry for not found error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 404, body: responseBody },
+          startTime,
+          data,
+          'Campaign not found'
+        )
+      )
+
+      return response
     }
 
     // Verify user belongs to same org
@@ -111,13 +178,29 @@ export async function PATCH(
       .single()
 
     if (orgError || userOrg?.organization_id !== organizationId) {
-      return createErrorResponse(
+      const response = createErrorResponse(
         'FORBIDDEN',
         'You do not have access to this campaign',
         403,
         { campaign_id: campaignId },
         requestId
       )
+
+      // Log audit entry for forbidden error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 403, body: responseBody },
+          startTime,
+          data,
+          'Access forbidden to campaign'
+        )
+      )
+
+      return response
     }
 
     // Build update object
@@ -148,6 +231,20 @@ export async function PATCH(
         const errorResponse = formatBudgetError(budgetValidation)
         const response = NextResponse.json(errorResponse, { status: 400 })
         addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+        // Log audit entry for budget exceeded error
+        logAuditEntry(
+          createAuditEntry(
+            apiKeyId,
+            organizationId,
+            request,
+            { status: 400, body: errorResponse },
+            startTime,
+            data,
+            'Budget limit exceeded'
+          )
+        )
+
         return response
       }
     }
@@ -162,29 +259,69 @@ export async function PATCH(
 
     if (updateError) {
       console.error('Error updating campaign:', updateError)
-      return createErrorResponse(
+      const response = createErrorResponse(
         'DATABASE_ERROR',
         'Failed to update campaign',
         500,
         { error: updateError.message },
         requestId
       )
+
+      // Log audit entry for database error
+      const responseBody = await response.clone().json()
+      logAuditEntry(
+        createAuditEntry(
+          apiKeyId,
+          organizationId,
+          request,
+          { status: 500, body: responseBody },
+          startTime,
+          data,
+          updateError.message
+        )
+      )
+
+      return response
     }
 
-    const response = NextResponse.json(
-      {
-        success: true,
-        data: {
-          campaign,
-        },
+    const responseBody = {
+      success: true,
+      data: {
+        campaign,
       },
-      { status: 200 }
+    }
+
+    // Log audit entry (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 200, body: responseBody },
+        startTime,
+        data
+      )
     )
+
+    const response = NextResponse.json(responseBody, { status: 200 })
 
     addAgentApiHeaders(response.headers, requestId, rateLimit)
     return response
   } catch (error) {
     console.error('Error in campaign update endpoint:', error)
+
+    // Log audit entry for error (async, non-blocking)
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 500 },
+        startTime,
+        undefined,
+        error instanceof Error ? error.message : String(error)
+      )
+    )
 
     if (error instanceof SyntaxError) {
       return createErrorResponse(

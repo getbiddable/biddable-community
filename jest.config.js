@@ -7,11 +7,11 @@ const config = {
   testEnvironment: 'node',
 
   // Root directories
-  roots: ['<rootDir>/tests', '<rootDir>/lib'],
+  roots: ['<rootDir>/test', '<rootDir>/lib'],
 
   // Test file patterns
   testMatch: [
-    '**/tests/**/*.ts',
+    '**/test/**/*.ts',
     '**/?(*.)+(spec|test).ts'
   ],
 
@@ -39,7 +39,7 @@ const config = {
   },
 
   // Setup files
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
+  setupFilesAfterEnv: ['<rootDir>/test/agent-api/setup.ts'],
 
   // Transform configuration
   transform: {
