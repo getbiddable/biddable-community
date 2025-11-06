@@ -32,7 +32,11 @@ export interface Message {
 export interface ChatOptions {
   messages: Message[]
   tools?: ChatCompletionTool[]
-  onToolCall?: (toolName: string, args: Record<string, unknown>) => Promise<unknown>
+  onToolCall?: (toolCall: {
+    id: string
+    name: string
+    args: Record<string, unknown>
+  }) => Promise<unknown>
   maxIterations?: number
 }
 
@@ -111,7 +115,11 @@ export async function callOpenAI(options: ChatOptions): Promise<string> {
 
           try {
             // Execute the tool
-            const result = await onToolCall(toolName, toolArgs)
+            const result = await onToolCall({
+              id: toolCall.id,
+              name: toolName,
+              args: toolArgs,
+            })
 
             // Add tool result to messages
             currentMessages.push({

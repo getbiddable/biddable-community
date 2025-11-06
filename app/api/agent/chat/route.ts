@@ -196,17 +196,57 @@ export async function POST(request: NextRequest) {
     if (historyMessages && historyMessages.length > 0) {
       const chronologicalHistory = historyMessages.reverse()
       for (const msg of chronologicalHistory) {
-        messages.push({
+        const baseMessage: Message = {
           role: msg.role as 'user' | 'assistant' | 'tool',
           content: msg.content,
-          tool_calls: msg.tool_calls as any,
-        })
+        }
+
+        if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
+          baseMessage.tool_calls = msg.tool_calls as any
+        }
+
+        messages.push(baseMessage)
+
+        // Reconstruct prior tool execution results for conversation context
+        if (
+          msg.role === 'assistant' &&
+          Array.isArray(msg.tool_calls) &&
+          Array.isArray(msg.tool_results)
+        ) {
+          for (const toolCall of msg.tool_calls as Array<{ id?: string }>) {
+            if (!toolCall?.id) continue
+
+            const matchingResult = (msg.tool_results as Array<{ id?: string; result?: unknown }>).find(
+              result => result?.id === toolCall.id
+            )
+
+            if (matchingResult) {
+              const serializedResult =
+                JSON.stringify(
+                  Object.prototype.hasOwnProperty.call(matchingResult, 'result')
+                    ? matchingResult.result
+                    : matchingResult
+                ) ?? 'null'
+
+              messages.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: serializedResult,
+              })
+            }
+          }
+        }
       }
     }
 
     // 9. Call OpenAI with tools
     let assistantResponse: string
-    const toolCalls: Array<{ name: string; args: Record<string, unknown>; result: unknown }> = []
+    const toolCalls: Array<{
+      id: string
+      name: string
+      args: Record<string, unknown>
+      result: unknown
+    }> = []
 
     try {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `http://localhost:3000`
@@ -214,18 +254,18 @@ export async function POST(request: NextRequest) {
       assistantResponse = await callOpenAI({
         messages,
         tools: AGENT_TOOLS,
-        onToolCall: async (toolName, args) => {
+        onToolCall: async ({ id, name, args }) => {
           // 10. Execute tool calls server-side
-          logger.info('Agent executing tool', { toolName, args })
+          logger.info('Agent executing tool', { toolName: name, args })
 
-          const result = await executeAgentTool(toolName, args, {
+          const result = await executeAgentTool(name, args, {
             apiKey,
             organizationId,
             userId: user.id,
             baseUrl,
           })
 
-          toolCalls.push({ name: toolName, args, result })
+          toolCalls.push({ id, name, args, result })
           return result
         },
       })
@@ -250,7 +290,21 @@ export async function POST(request: NextRequest) {
         conversation_id: currentConversationId,
         role: 'assistant',
         content: assistantResponse,
-        tool_calls: toolCalls.length > 0 ? toolCalls : null,
+        tool_calls:
+          toolCalls.length > 0
+            ? toolCalls.map(({ id, name, args }) => ({
+                id,
+                name,
+                args,
+              }))
+            : null,
+        tool_results:
+          toolCalls.length > 0
+            ? toolCalls.map(({ id, result }) => ({
+                id,
+                result,
+              }))
+            : null,
       })
 
     if (assistantMessageError) {
@@ -270,7 +324,12 @@ export async function POST(request: NextRequest) {
       data: {
         message: assistantResponse,
         conversation_id: currentConversationId,
-        tool_calls: toolCalls.map(tc => ({ name: tc.name, args: tc.args })),
+        tool_calls: toolCalls.map(tc => ({
+          id: tc.id,
+          name: tc.name,
+          args: tc.args,
+          result: tc.result,
+        })),
       },
     })
   } catch (error) {
