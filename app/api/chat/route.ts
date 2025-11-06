@@ -25,6 +25,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Parse and validate the endpoint URL
     let endpointUrl: URL
 
     try {
@@ -36,6 +37,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Validate protocol is HTTPS
     if (endpointUrl.protocol !== "https:") {
       return NextResponse.json(
         { error: "Endpoint must use HTTPS" },
@@ -43,9 +45,47 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!allowedEndpoints.includes(endpointUrl.toString())) {
+    // Check for path traversal attempts
+    const pathname = endpointUrl.pathname
+    if (pathname.includes("..") || pathname.includes("%2e%2e") || pathname.includes("%252e")) {
+      console.error("[v0] Chat proxy blocked path traversal attempt", {
+        endpoint: endpoint,
+        pathname: pathname,
+      })
+      return NextResponse.json(
+        { error: "Invalid endpoint path" },
+        { status: 400 },
+      )
+    }
+
+    // Validate against allowlist - check if hostname and path prefix match
+    const isAllowed = allowedEndpoints.some((allowedEndpoint) => {
+      try {
+        const allowedUrl = new URL(allowedEndpoint)
+
+        // Must match hostname exactly
+        if (allowedUrl.hostname !== endpointUrl.hostname) {
+          return false
+        }
+
+        // Path must start with allowed path (prefix match)
+        if (!pathname.startsWith(allowedUrl.pathname)) {
+          return false
+        }
+
+        return true
+      } catch {
+        // Invalid URL in allowlist, skip it
+        return false
+      }
+    })
+
+    if (!isAllowed) {
       console.error("[v0] Chat proxy blocked request to unauthorized endpoint", {
-        endpoint: endpointUrl.toString(),
+        endpoint: endpointUrl.hostname + pathname,
+        allowedHosts: allowedEndpoints.map(e => {
+          try { return new URL(e).hostname } catch { return "invalid" }
+        }),
       })
       return NextResponse.json(
         { error: "Endpoint is not authorized for chat proxy usage" },

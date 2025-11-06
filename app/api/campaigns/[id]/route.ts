@@ -28,12 +28,26 @@ export async function GET(
       )
     }
 
-    // Get the campaign by ID, ensuring user owns it
+    // Get user's organization
+    const { data: orgData, error: orgError } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (orgError || !orgData) {
+      return NextResponse.json(
+        { error: 'No organization found for user' },
+        { status: 403 }
+      )
+    }
+
+    // Get the campaign by ID, ensuring it belongs to user's organization
     const { data: campaign, error: campaignError } = await supabase
       .from('campaigns')
       .select('*')
       .eq('id', campaignId)
-      .eq('created_by', user.id)
+      .eq('organization_id', orgData.organization_id)
       .single()
 
     if (campaignError) {
@@ -105,12 +119,26 @@ export async function PUT(
       )
     }
 
-    // Verify user owns the campaign
+    // Get user's organization
+    const { data: orgData, error: orgError } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (orgError || !orgData) {
+      return NextResponse.json(
+        { error: 'No organization found for user' },
+        { status: 403 }
+      )
+    }
+
+    // Verify campaign belongs to user's organization
     const { data: existingCampaign, error: fetchError } = await supabase
       .from('campaigns')
       .select('id')
       .eq('id', campaignId)
-      .eq('created_by', user.id)
+      .eq('organization_id', orgData.organization_id)
       .single()
 
     if (fetchError || !existingCampaign) {
@@ -133,7 +161,7 @@ export async function PUT(
         status: status !== undefined ? status : true
       })
       .eq('id', campaignId)
-      .eq('created_by', user.id)
+      .eq('organization_id', orgData.organization_id)
       .select()
       .single()
 

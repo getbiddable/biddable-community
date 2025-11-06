@@ -157,6 +157,10 @@ export async function deleteApiKey(keyId: string) {
 /**
  * Validate an API key and return the associated data
  * Used by the agent API middleware
+ *
+ * Security: Uses constant-time validation to prevent timing attacks
+ * - Looks up keys by prefix (indexed) instead of scanning all keys
+ * - Performs dummy hash operation for invalid keys to maintain constant time
  */
 export async function validateApiKey(apiKey: string) {
   // Use service role key to bypass RLS - we're doing our own auth here
@@ -171,18 +175,31 @@ export async function validateApiKey(apiKey: string) {
     }
   )
 
-  // Get all active API keys (we need to check the hash)
+  // Extract prefix for indexed lookup (constant-time operation)
+  const keyPrefix = getKeyPrefix(apiKey)
+
+  // Query only keys matching this prefix (indexed, much smaller result set)
   const { data: keys, error } = await supabase
     .from('api_keys')
     .select('*')
     .eq('is_active', true)
+    .eq('key_prefix', keyPrefix)
+    .limit(10) // Safety limit - should only be 1-2 keys max per prefix
 
   if (error) {
     throw new Error(`Failed to validate API key: ${error.message}`)
   }
 
-  // Check each key's hash
-  for (const key of keys || []) {
+  // If no keys found, perform dummy hash to maintain constant timing
+  if (!keys || keys.length === 0) {
+    // Dummy bcrypt operation to prevent timing attacks
+    // This ensures invalid keys take similar time as valid ones
+    await bcrypt.hash('dummy-key-for-timing-protection', 10)
+    return { valid: false, reason: 'invalid' }
+  }
+
+  // Check each key's hash (should be very few keys with matching prefix)
+  for (const key of keys) {
     const isValid = await verifyApiKey(apiKey, key.key_hash)
 
     if (isValid) {
@@ -191,11 +208,13 @@ export async function validateApiKey(apiKey: string) {
         return { valid: false, reason: 'expired' }
       }
 
-      // Update last_used_at
-      await supabase
+      // Update last_used_at (async, non-blocking)
+      supabase
         .from('api_keys')
         .update({ last_used_at: new Date().toISOString() })
         .eq('id', key.id)
+        .then(() => {})
+        .catch((err) => console.error('Failed to update last_used_at:', err))
 
       return {
         valid: true,
@@ -210,6 +229,7 @@ export async function validateApiKey(apiKey: string) {
     }
   }
 
+  // Key prefix matched but hash didn't - still invalid
   return { valid: false, reason: 'invalid' }
 }
 
