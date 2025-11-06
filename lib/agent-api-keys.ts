@@ -12,6 +12,13 @@ import { encrypt, decrypt } from '@/lib/encryption'
 const API_KEY_PREFIX = 'bbl_'
 const API_KEY_LENGTH = 32 // characters after prefix
 
+export const DEFAULT_AGENT_PERMISSIONS: Record<string, string[]> = {
+  campaigns: ['read', 'write'],
+  assets: ['read', 'write'],
+  audiences: ['read', 'write'],
+  budget: ['read'],
+}
+
 /**
  * Generate a random API key with the format: bbl_[32 chars]
  */
@@ -65,6 +72,7 @@ export async function createApiKey(params: {
   const apiKey = generateApiKey()
   const keyHash = await hashApiKey(apiKey)
   const keyPrefix = getKeyPrefix(apiKey)
+  const effectivePermissions = params.permissions ?? DEFAULT_AGENT_PERMISSIONS
 
   // Insert into database
   const { data, error } = await supabase
@@ -76,7 +84,7 @@ export async function createApiKey(params: {
       key_prefix: keyPrefix,
       name: params.name,
       description: params.description,
-      permissions: params.permissions || {},
+      permissions: effectivePermissions,
       expires_at: params.expiresAt?.toISOString(),
       metadata: params.metadata || {},
       is_active: true,
@@ -339,7 +347,7 @@ export async function getOrCreateHostedAgentApiKey(organizationId: string): Prom
       encrypted_key: encryptedKey,
       name: AGENT_KEY_NAME,
       description: 'Auto-generated API key for hosted agent. Used server-side only.',
-      permissions: {},
+      permissions: DEFAULT_AGENT_PERMISSIONS,
       metadata: {
         auto_generated: true,
         purpose: 'hosted_agent',
