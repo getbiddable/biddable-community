@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { logger } from '@/lib/logger'
 import { Button } from '@/components/ui/button'
@@ -308,9 +308,8 @@ export default function AgentLogsViewer() {
                 </TableHeader>
                 <TableBody>
                   {logs.map((log) => (
-                    <>
+                    <Fragment key={log.id}>
                       <TableRow
-                        key={log.id}
                         className="cursor-pointer hover:bg-muted/50"
                         onClick={() => setExpandedRow(expandedRow === log.id ? null : log.id)}
                       >
@@ -419,7 +418,7 @@ export default function AgentLogsViewer() {
                           </TableCell>
                         </TableRow>
                       )}
-                    </>
+                    </Fragment>
                   ))}
                 </TableBody>
               </Table>

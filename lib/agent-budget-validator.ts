@@ -33,6 +33,11 @@ interface BudgetValidationResult {
   error_message?: string
   error_code?: string
   details?: any
+  current_monthly_total?: number
+  requested_budget?: number
+  available_budget?: number
+  affected_month?: string
+  existing_campaigns?: Array<{ id: number; name: string; budget: number }>
 }
 
 /**
@@ -173,6 +178,15 @@ export async function validateCampaignBudget(
   endDate: string,
   campaignId?: number
 ): Promise<BudgetValidationResult> {
+  const newCampaign: Campaign = {
+    id: -1,
+    campaign_name: 'New Campaign',
+    budget: newBudget,
+    start_date: startDate,
+    end_date: endDate,
+    created_by: '',
+  }
+
   // Parse dates
   const start = new Date(startDate)
   const end = new Date(endDate)
@@ -191,22 +205,55 @@ export async function validateCampaignBudget(
   }
 
   // Check budget for each affected month
+  const monthSummaries: Array<{
+    year: number
+    month: number
+    current_monthly_total: number
+    requested_monthly_amount: number
+    new_monthly_total: number
+    remaining_budget: number
+    campaigns: Campaign[]
+  }> = []
+
   for (const { year, month } of affectedMonths) {
     const calculation = await calculateMonthlyBudget(organizationId, year, month, campaignId)
 
-    const newTotal = calculation.monthly_total + newBudget
+    const requestedMonthlyAmount = getCampaignBudgetForMonth(newCampaign, year, month)
+    const newTotal = calculation.monthly_total + requestedMonthlyAmount
+    const remainingBudget = Math.max(0, MAX_MONTHLY_BUDGET - newTotal)
+
+    monthSummaries.push({
+      year,
+      month,
+      current_monthly_total: calculation.monthly_total,
+      requested_monthly_amount: requestedMonthlyAmount,
+      new_monthly_total: newTotal,
+      remaining_budget: remainingBudget,
+      campaigns: calculation.campaigns,
+    })
 
     if (newTotal > MAX_MONTHLY_BUDGET) {
       return {
         valid: false,
         monthly_limit: MAX_MONTHLY_BUDGET,
         current_total: calculation.monthly_total,
-        requested_amount: newBudget,
+        requested_amount: requestedMonthlyAmount,
         available: Math.max(0, MAX_MONTHLY_BUDGET - calculation.monthly_total),
         error_code: 'BUDGET_EXCEEDED',
         error_message: `Campaign budget would exceed monthly limit of $${MAX_MONTHLY_BUDGET.toLocaleString()} for ${year}-${month.toString().padStart(2, '0')}`,
+        current_monthly_total: calculation.monthly_total,
+        requested_budget: newBudget,
+        available_budget: Math.max(0, MAX_MONTHLY_BUDGET - calculation.monthly_total),
+        affected_month: `${year}-${month.toString().padStart(2, '0')}`,
+        existing_campaigns: calculation.campaigns.map(c => ({
+          id: c.id,
+          name: c.campaign_name,
+          budget: c.budget,
+        })),
         details: {
           affected_month: `${year}-${month.toString().padStart(2, '0')}`,
+          requested_monthly_amount: requestedMonthlyAmount,
+          new_monthly_total: newTotal,
           existing_campaigns: calculation.campaigns.map(c => ({
             id: c.id,
             name: c.campaign_name,
@@ -218,20 +265,52 @@ export async function validateCampaignBudget(
   }
 
   // Budget is valid
-  const firstMonth = affectedMonths[0]
-  const calculation = await calculateMonthlyBudget(
-    organizationId,
-    firstMonth.year,
-    firstMonth.month,
-    campaignId
+  if (monthSummaries.length === 0) {
+    // No months overlapped (should not happen if inputs are valid)
+    return {
+      valid: true,
+      monthly_limit: MAX_MONTHLY_BUDGET,
+      current_total: 0,
+      requested_amount: 0,
+      available: MAX_MONTHLY_BUDGET,
+      details: {
+        months: [],
+      },
+    }
+  }
+
+  const firstMonthSummary = monthSummaries[0]
+  const minRemaining = monthSummaries.reduce(
+    (min, month) => Math.min(min, month.remaining_budget),
+    MAX_MONTHLY_BUDGET
   )
 
   return {
     valid: true,
     monthly_limit: MAX_MONTHLY_BUDGET,
-    current_total: calculation.monthly_total,
+    current_total: firstMonthSummary.current_monthly_total,
     requested_amount: newBudget,
-    available: MAX_MONTHLY_BUDGET - calculation.monthly_total - newBudget,
+    available: minRemaining,
+    current_monthly_total: firstMonthSummary.current_monthly_total,
+    requested_budget: newBudget,
+    available_budget: minRemaining,
+    details: {
+      months: monthSummaries.map(summary => ({
+        year: summary.year,
+        month: summary.month,
+        current_monthly_total: summary.current_monthly_total,
+        requested_monthly_amount: summary.requested_monthly_amount,
+        new_monthly_total: summary.new_monthly_total,
+        remaining_budget: summary.remaining_budget,
+        campaigns: summary.campaigns.map(c => ({
+          id: c.id,
+          name: c.campaign_name,
+          budget: c.budget,
+          start_date: c.start_date,
+          end_date: c.end_date,
+        })),
+      })),
+    },
   }
 }
 

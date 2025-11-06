@@ -5,10 +5,58 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { endpoint, messages, model = "gpt-3.5-turbo", max_tokens = 500, temperature = 0.7 } = body
 
-    console.log("[v0] Proxying request to LLM endpoint:", endpoint)
+    if (!endpoint) {
+      return NextResponse.json(
+        { error: "Endpoint is required" },
+        { status: 400 },
+      )
+    }
+
+    const allowedEndpoints = (process.env.LLM_PROXY_ALLOWED_ENDPOINTS || "")
+      .split(",")
+      .map((url) => url.trim())
+      .filter(Boolean)
+
+    if (allowedEndpoints.length === 0) {
+      console.error("[v0] Chat proxy misconfiguration: no allowed endpoints defined")
+      return NextResponse.json(
+        { error: "Chat proxy is not configured with any allowed endpoints" },
+        { status: 500 },
+      )
+    }
+
+    let endpointUrl: URL
+
+    try {
+      endpointUrl = new URL(endpoint)
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid endpoint URL" },
+        { status: 400 },
+      )
+    }
+
+    if (endpointUrl.protocol !== "https:") {
+      return NextResponse.json(
+        { error: "Endpoint must use HTTPS" },
+        { status: 400 },
+      )
+    }
+
+    if (!allowedEndpoints.includes(endpointUrl.toString())) {
+      console.error("[v0] Chat proxy blocked request to unauthorized endpoint", {
+        endpoint: endpointUrl.toString(),
+      })
+      return NextResponse.json(
+        { error: "Endpoint is not authorized for chat proxy usage" },
+        { status: 403 },
+      )
+    }
+
+    console.log("[v0] Proxying request to LLM endpoint:", endpointUrl.toString())
 
     // Make the request to the LLM endpoint from the server side
-    const response = await fetch(endpoint, {
+    const response = await fetch(endpointUrl.toString(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
