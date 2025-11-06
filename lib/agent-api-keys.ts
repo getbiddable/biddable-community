@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { encrypt, decrypt } from '@/lib/encryption'
@@ -15,14 +16,12 @@ const API_KEY_LENGTH = 32 // characters after prefix
  * Generate a random API key with the format: bbl_[32 chars]
  */
 export function generateApiKey(): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  let key = API_KEY_PREFIX
+  const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  const randomBytes = crypto.randomBytes(API_KEY_LENGTH)
 
-  for (let i = 0; i < API_KEY_LENGTH; i++) {
-    key += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
+  const keyBody = Array.from(randomBytes, (byte) => charset[byte % charset.length]).join('')
 
-  return key
+  return API_KEY_PREFIX + keyBody
 }
 
 /**
