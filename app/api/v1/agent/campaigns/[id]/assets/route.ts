@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 import {
   authenticateAgentRequest,
   createErrorResponse,
-  generateRequestId,
   addAgentApiHeaders,
+  hasAgentPermission,
 } from '@/lib/agent-api-middleware'
 import { logAuditEntry, createAuditEntry } from '@/lib/agent-audit-logger'
 
@@ -24,7 +24,33 @@ export async function GET(
     return authResult.response
   }
 
-  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit, permissions } = authResult
+
+  if (!hasAgentPermission(permissions, 'campaigns', 'read')) {
+    const response = createErrorResponse(
+      'FORBIDDEN',
+      'API key is not authorized to read campaign assets',
+      403,
+      { resource: 'campaigns', action: 'read' },
+      requestId
+    )
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    const responseBody = await response.clone().json()
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 403, body: responseBody },
+        startTime,
+        undefined,
+        'Permission denied: campaigns.read'
+      )
+    )
+
+    return response
+  }
 
   try {
     const campaignId = parseInt(params.id)
@@ -248,7 +274,33 @@ export async function POST(
     return authResult.response
   }
 
-  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit, permissions } = authResult
+
+  if (!hasAgentPermission(permissions, 'campaigns', 'write')) {
+    const response = createErrorResponse(
+      'FORBIDDEN',
+      'API key is not authorized to modify campaign assets',
+      403,
+      { resource: 'campaigns', action: 'write' },
+      requestId
+    )
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    const responseBody = await response.clone().json()
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 403, body: responseBody },
+        startTime,
+        undefined,
+        'Permission denied: campaigns.write'
+      )
+    )
+
+    return response
+  }
 
   try {
     const campaignId = parseInt(params.id)
@@ -608,7 +660,33 @@ export async function DELETE(
     return authResult.response
   }
 
-  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit, permissions } = authResult
+
+  if (!hasAgentPermission(permissions, 'campaigns', 'write')) {
+    const response = createErrorResponse(
+      'FORBIDDEN',
+      'API key is not authorized to modify campaign assets',
+      403,
+      { resource: 'campaigns', action: 'write' },
+      requestId
+    )
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    const responseBody = await response.clone().json()
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 403, body: responseBody },
+        startTime,
+        undefined,
+        'Permission denied: campaigns.write'
+      )
+    )
+
+    return response
+  }
 
   try {
     const campaignId = parseInt(params.id)

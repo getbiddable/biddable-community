@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { authenticateAgentRequest, addAgentApiHeaders } from '@/lib/agent-api-middleware'
+import { authenticateAgentRequest, addAgentApiHeaders, hasAgentPermission, createErrorResponse } from '@/lib/agent-api-middleware'
 import { getBudgetStatus, MAX_MONTHLY_BUDGET } from '@/lib/agent-budget-validator'
 import { logAuditEntry, createAuditEntry } from '@/lib/agent-audit-logger'
 
@@ -24,7 +24,32 @@ export async function GET(request: NextRequest) {
     return authResult.response
   }
 
-  const { apiKeyId, organizationId, requestId } = authResult
+  const { apiKeyId, organizationId, requestId, permissions, rateLimit } = authResult
+
+  if (!hasAgentPermission(permissions, 'budget', 'read')) {
+    const response = createErrorResponse(
+      'FORBIDDEN',
+      'API key is not authorized to view budget status',
+      403,
+      { resource: 'budget', action: 'read' },
+      requestId
+    )
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 403, body: await response.clone().json() },
+        startTime,
+        undefined,
+        'Permission denied: budget.read'
+      )
+    )
+
+    return response
+  }
 
   try {
     // Get query parameters
@@ -100,7 +125,7 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.json(responseBody, { status: 200 })
 
     // Add standard headers
-    addAgentApiHeaders(response.headers, requestId)
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
 
     return response
   } catch (error: unknown) {
@@ -132,7 +157,7 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
 
-    addAgentApiHeaders(response.headers, requestId)
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
     return response
   }
 }

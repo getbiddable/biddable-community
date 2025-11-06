@@ -61,6 +61,65 @@ export function createErrorResponse(
   )
 }
 
+const PERMISSION_IMPLICATIONS: Record<string, string[]> = {
+  manage: ['read', 'write', 'delete', 'assign'],
+  admin: ['read', 'write', 'delete', 'assign'],
+  write: ['read'],
+  delete: ['read', 'write'],
+}
+
+/**
+ * Determine whether an API key grants a specific permission.
+ * Treat an empty permissions object as full access for backwards compatibility.
+ */
+export function hasAgentPermission(
+  permissions: Record<string, string[]>,
+  resource: string,
+  action: string
+): boolean {
+  if (!permissions || Object.keys(permissions).length === 0) {
+    return true
+  }
+
+  const normalizedResource = resource.toLowerCase()
+  const normalizedAction = action.toLowerCase()
+
+  const resourcePermissions = permissions[normalizedResource] || permissions[resource] || []
+  const wildcardPermissions =
+    permissions['*'] ||
+    permissions['all'] ||
+    permissions['global'] ||
+    []
+
+  const permissionSets = [resourcePermissions, wildcardPermissions]
+
+  for (const set of permissionSets) {
+    const normalizedSet = set.map((perm) => perm.toLowerCase())
+
+    if (
+      normalizedSet.includes('*') ||
+      normalizedSet.includes('all') ||
+      normalizedSet.includes('manage') ||
+      normalizedSet.includes('admin')
+    ) {
+      return true
+    }
+
+    if (normalizedSet.includes(normalizedAction)) {
+      return true
+    }
+
+    for (const perm of normalizedSet) {
+      const implied = PERMISSION_IMPLICATIONS[perm]
+      if (implied && implied.includes(normalizedAction)) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
 /**
  * Authenticate an agent API request using API key
  *

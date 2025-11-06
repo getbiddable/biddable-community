@@ -1,54 +1,73 @@
 /**
  * Agent API Rate Limiting System
  *
- * Implements token bucket algorithm for rate limiting agent API requests.
- * Tracks requests per API key with configurable limits per endpoint type.
+ * Persists request counters in Postgres so limits apply consistently
+ * across multiple application nodes.
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-// Rate limit configuration
+// Rate limit configuration (requests per window in seconds)
 export const RATE_LIMITS = {
   global: { requests: 1000, window: 3600 }, // 1000 requests per hour
-  'campaigns.create': { requests: 10, window: 3600 }, // 10 per hour
-  'campaigns.update': { requests: 50, window: 3600 }, // 50 per hour
-  'campaigns.delete': { requests: 10, window: 3600 }, // 10 per hour
-  'campaigns.list': { requests: 200, window: 3600 }, // 200 per hour
-  'assets.create': { requests: 50, window: 3600 }, // 50 per hour
-  'assets.list': { requests: 200, window: 3600 }, // 200 per hour
-  'audiences.create': { requests: 50, window: 3600 }, // 50 per hour
-  'audiences.list': { requests: 200, window: 3600 }, // 200 per hour
-  'ai.generate': { requests: 10, window: 3600 }, // 10 per hour (expensive)
+  'campaigns.create': { requests: 10, window: 3600 },
+  'campaigns.update': { requests: 50, window: 3600 },
+  'campaigns.delete': { requests: 10, window: 3600 },
+  'campaigns.list': { requests: 200, window: 3600 },
+  'assets.list': { requests: 200, window: 3600 },
+  'audiences.list': { requests: 200, window: 3600 },
+  'audiences.create': { requests: 50, window: 3600 },
+  'assets.create': { requests: 50, window: 3600 },
+  'ai.generate': { requests: 10, window: 3600 },
 } as const
 
 type RateLimitKey = keyof typeof RATE_LIMITS
 
-interface RateLimitBucket {
-  tokens: number
-  lastRefill: number
-  requests: number[]
+export interface RateLimitResult {
+  allowed: boolean
+  limit: number
+  remaining: number
+  reset: number // Unix timestamp when limit resets
+  retryAfter?: number
 }
 
-// In-memory storage for rate limit buckets
-// In production, consider using Redis for distributed rate limiting
-const buckets = new Map<string, RateLimitBucket>()
+interface RateLimitRpcResult {
+  allowed: boolean
+  remaining: number
+  reset: string
+}
 
-/**
- * Get the rate limit configuration for an endpoint
- */
+let serviceRoleClient: SupabaseClient | null = null
+
+function getServiceRoleClient(): SupabaseClient {
+  if (serviceRoleClient) {
+    return serviceRoleClient
+  }
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!url || !serviceRoleKey) {
+    throw new Error('Supabase service role credentials are required for rate limiting')
+  }
+
+  serviceRoleClient = createClient(url, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  })
+
+  return serviceRoleClient
+}
+
 function getRateLimitConfig(action: string): { requests: number; window: number } {
-  // Try to match specific action first
   if (action in RATE_LIMITS) {
     return RATE_LIMITS[action as RateLimitKey]
   }
-
-  // Fall back to global limit
   return RATE_LIMITS.global
 }
 
-/**
- * Get custom rate limits from API key metadata
- */
 function getCustomLimits(metadata: any, action: string): { requests: number; window: number } | null {
   if (!metadata || !metadata.rate_limits) {
     return null
@@ -65,60 +84,19 @@ function getCustomLimits(metadata: any, action: string): { requests: number; win
   return null
 }
 
-/**
- * Create a unique bucket key for API key + action combination
- */
 function getBucketKey(apiKeyId: string, action: string): string {
   return `${apiKeyId}:${action}`
 }
 
-/**
- * Get or create a rate limit bucket
- */
-function getBucket(key: string): RateLimitBucket {
-  if (!buckets.has(key)) {
-    buckets.set(key, {
-      tokens: 0,
-      lastRefill: Date.now(),
-      requests: [],
-    })
+function normalizeRpcResult(data: any): RateLimitRpcResult {
+  if (Array.isArray(data)) {
+    return data[0] as RateLimitRpcResult
   }
-  return buckets.get(key)!
+  return data as RateLimitRpcResult
 }
 
-/**
- * Refill tokens based on time elapsed (token bucket algorithm)
- */
-function refillTokens(bucket: RateLimitBucket, limit: { requests: number; window: number }): void {
-  const now = Date.now()
-  const elapsed = now - bucket.lastRefill
-  const refillRate = limit.requests / limit.window // tokens per millisecond
-  const tokensToAdd = Math.floor(elapsed * refillRate)
-
-  if (tokensToAdd > 0) {
-    bucket.tokens = Math.min(limit.requests, bucket.tokens + tokensToAdd)
-    bucket.lastRefill = now
-  }
-}
-
-/**
- * Clean up old request timestamps outside the time window
- */
-function cleanupRequests(bucket: RateLimitBucket, windowMs: number): void {
-  const now = Date.now()
-  const cutoff = now - windowMs * 1000
-  bucket.requests = bucket.requests.filter(timestamp => timestamp > cutoff)
-}
-
-/**
- * Check if request is allowed and consume a token
- */
-export interface RateLimitResult {
-  allowed: boolean
-  limit: number
-  remaining: number
-  reset: number // Unix timestamp when limit resets
-  retryAfter?: number // Seconds to wait before retrying
+function toUnixSeconds(timestamp: string): number {
+  return Math.floor(new Date(timestamp).getTime() / 1000)
 }
 
 export async function checkRateLimit(
@@ -126,64 +104,71 @@ export async function checkRateLimit(
   action: string,
   metadata?: any
 ): Promise<RateLimitResult> {
-  // Get rate limit configuration (custom or default)
   const customLimit = getCustomLimits(metadata, action)
-  const limit = customLimit || getRateLimitConfig(action)
+  const actionLimit = customLimit || getRateLimitConfig(action)
 
-  // Check both global and action-specific limits
-  const checks = [
+  const client = getServiceRoleClient()
+
+  const checks: Array<{ key: string; limit: { requests: number; window: number } }> = [
     { key: getBucketKey(apiKeyId, 'global'), limit: RATE_LIMITS.global },
-    { key: getBucketKey(apiKeyId, action), limit },
+    { key: getBucketKey(apiKeyId, action), limit: actionLimit },
   ]
 
-  const now = Date.now()
+  let actionResult: RateLimitRpcResult | null = null
 
   for (const check of checks) {
-    const bucket = getBucket(check.key)
+    const { data, error } = await client.rpc('increment_agent_rate_limit', {
+      p_key: check.key,
+      p_limit: check.limit.requests,
+      p_window_seconds: check.limit.window,
+    })
 
-    // Clean up old requests
-    cleanupRequests(bucket, check.limit.window)
-
-    // Add current request to tracking
-    bucket.requests.push(now)
-
-    // Check if we've exceeded the limit
-    if (bucket.requests.length > check.limit.requests) {
-      // Rate limit exceeded
-      const oldestRequest = bucket.requests[0]
-      const resetTime = oldestRequest + check.limit.window * 1000
-      const retryAfter = Math.ceil((resetTime - now) / 1000)
-
-      // Remove the request we just added since it's not allowed
-      bucket.requests.pop()
-
+    if (error) {
+      console.error('Rate limiter RPC failed:', error)
+      // Fail closed – disallow the request if the limiter cannot be updated
       return {
         allowed: false,
         limit: check.limit.requests,
         remaining: 0,
-        reset: Math.floor(resetTime / 1000),
+        reset: Math.floor(Date.now() / 1000),
+        retryAfter: check.limit.window,
+      }
+    }
+
+    const result = normalizeRpcResult(data)
+
+    if (check.key.endsWith(action)) {
+      actionResult = result
+    }
+
+    if (!result.allowed) {
+      const resetSeconds = toUnixSeconds(result.reset)
+      const retryAfter = Math.max(0, resetSeconds - Math.floor(Date.now() / 1000))
+
+      return {
+        allowed: false,
+        limit: check.limit.requests,
+        remaining: Math.max(0, result.remaining ?? 0),
+        reset: resetSeconds,
         retryAfter,
       }
     }
   }
 
-  // All checks passed
-  const actionBucket = getBucket(getBucketKey(apiKeyId, action))
-  const remaining = limit.requests - actionBucket.requests.length
-  const oldestRequest = actionBucket.requests[0] || now
-  const resetTime = oldestRequest + limit.window * 1000
+  const finalResult = actionResult ?? {
+    allowed: true,
+    remaining: actionLimit.requests,
+    reset: new Date(Date.now() + actionLimit.window * 1000).toISOString(),
+  }
 
   return {
     allowed: true,
-    limit: limit.requests,
-    remaining: Math.max(0, remaining),
-    reset: Math.floor(resetTime / 1000),
+    limit: actionLimit.requests,
+    remaining: Math.max(0, finalResult.remaining ?? 0),
+    reset: toUnixSeconds(finalResult.reset),
   }
 }
 
-/**
- * Get current rate limit status without consuming a token
- */
 export async function getRateLimitStatus(
   apiKeyId: string,
   action: string,
@@ -192,87 +177,93 @@ export async function getRateLimitStatus(
   const customLimit = getCustomLimits(metadata, action)
   const limit = customLimit || getRateLimitConfig(action)
   const key = getBucketKey(apiKeyId, action)
-  const bucket = getBucket(key)
 
-  cleanupRequests(bucket, limit.window)
+  const client = getServiceRoleClient()
+  const { data, error } = await client.rpc('get_agent_rate_limit_status', {
+    p_key: key,
+    p_limit: limit.requests,
+    p_window_seconds: limit.window,
+  })
 
-  const now = Date.now()
-  const remaining = Math.max(0, limit.requests - bucket.requests.length)
-  const oldestRequest = bucket.requests[0] || now
-  const resetTime = oldestRequest + limit.window * 1000
+  if (error) {
+    console.error('Rate limiter status RPC failed:', error)
+    return {
+      allowed: true,
+      limit: limit.requests,
+      remaining: limit.requests,
+      reset: Math.floor((Date.now() + limit.window * 1000) / 1000),
+    }
+  }
 
+  const result = normalizeRpcResult(data)
   return {
-    allowed: remaining > 0,
+    allowed: result.allowed,
     limit: limit.requests,
-    remaining,
-    reset: Math.floor(resetTime / 1000),
+    remaining: Math.max(0, result.remaining ?? 0),
+    reset: toUnixSeconds(result.reset),
   }
 }
 
-/**
- * Reset rate limit for an API key (admin function)
- */
-export function resetRateLimit(apiKeyId: string, action?: string): void {
+export async function resetRateLimit(apiKeyId: string, action?: string): Promise<void> {
+  const client = getServiceRoleClient()
+
   if (action) {
-    const key = getBucketKey(apiKeyId, action)
-    buckets.delete(key)
-  } else {
-    // Reset all limits for this API key
-    const keysToDelete: string[] = []
-    for (const key of buckets.keys()) {
-      if (key.startsWith(`${apiKeyId}:`)) {
-        keysToDelete.push(key)
-      }
+    const { error } = await client.rpc('reset_agent_rate_limit', {
+      p_key: getBucketKey(apiKeyId, action),
+    })
+    if (error) {
+      console.error('Failed to reset rate limit bucket', { apiKeyId, action, error })
     }
-    keysToDelete.forEach(key => buckets.delete(key))
+    return
+  }
+
+  const { error } = await client
+    .from('agent_rate_limit_counters')
+    .delete()
+    .like('key', `${apiKeyId}:%`)
+
+  if (error) {
+    console.error('Failed to reset rate limits for API key', { apiKeyId, error })
   }
 }
 
-/**
- * Periodic cleanup of old buckets (run this every hour or so)
- */
-export function cleanupOldBuckets(): void {
-  const now = Date.now()
-  const maxAge = 24 * 60 * 60 * 1000 // 24 hours
+export async function cleanupOldBuckets(): Promise<void> {
+  const client = getServiceRoleClient()
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const { error } = await client
+    .from('agent_rate_limit_counters')
+    .delete()
+    .lt('updated_at', cutoff)
 
-  for (const [key, bucket] of buckets.entries()) {
-    // If no requests in the last 24 hours, remove the bucket
-    if (bucket.requests.length === 0 || now - bucket.requests[bucket.requests.length - 1] > maxAge) {
-      buckets.delete(key)
-    }
+  if (error) {
+    console.error('Failed to clean up old rate limit buckets', error)
   }
 }
 
-/**
- * Map endpoint paths to action names for rate limiting
- */
 export function getActionFromPath(method: string, path: string): string {
-  // Extract the relevant part of the path
   const match = path.match(/\/api\/v1\/agent\/(\w+)\/?([\w-]+)?/)
   if (!match) return 'unknown'
 
   const [, resource, action] = match
 
-  // Map HTTP methods and paths to action names
   if (method === 'GET' && action === 'list') return `${resource}.list`
   if (method === 'POST' && action === 'create') return `${resource}.create`
   if (method === 'PATCH' && path.includes('/update')) return `${resource}.update`
   if (method === 'DELETE') return `${resource}.delete`
-  if (method === 'GET') return `${resource}.get`
-  if (method === 'POST' && resource === 'assets' && path.includes('generate')) return 'ai.generate'
 
-  return `${resource}.${action || method.toLowerCase()}`
+  if (method === 'POST' && path.includes('/assets')) return `${resource}.create`
+  if (method === 'POST' && path.includes('/audiences')) return `${resource}.create`
+  if (method === 'GET') return `${resource}.get`
+
+  return `${resource}.${method.toLowerCase()}`
 }
 
-/**
- * Add rate limit headers to response
- */
-export function addRateLimitHeaders(headers: Headers, result: RateLimitResult): void {
-  headers.set('X-RateLimit-Limit', result.limit.toString())
-  headers.set('X-RateLimit-Remaining', result.remaining.toString())
-  headers.set('X-RateLimit-Reset', result.reset.toString())
+export function addRateLimitHeaders(headers: Headers, rateLimitInfo: RateLimitResult): void {
+  headers.set('X-RateLimit-Limit', rateLimitInfo.limit.toString())
+  headers.set('X-RateLimit-Remaining', Math.max(0, rateLimitInfo.remaining).toString())
+  headers.set('X-RateLimit-Reset', rateLimitInfo.reset.toString())
 
-  if (!result.allowed && result.retryAfter) {
-    headers.set('Retry-After', result.retryAfter.toString())
+  if (rateLimitInfo.retryAfter !== undefined) {
+    headers.set('Retry-After', rateLimitInfo.retryAfter.toString())
   }
 }

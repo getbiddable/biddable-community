@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 import {
   authenticateAgentRequest,
   createErrorResponse,
-  generateRequestId,
   addAgentApiHeaders,
+  hasAgentPermission,
 } from '@/lib/agent-api-middleware'
 import { logAuditEntry, createAuditEntry } from '@/lib/agent-audit-logger'
 
@@ -26,7 +26,33 @@ export async function GET(request: NextRequest) {
     return authResult.response
   }
 
-  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit, permissions } = authResult
+
+  if (!hasAgentPermission(permissions, 'assets', 'read')) {
+    const response = createErrorResponse(
+      'FORBIDDEN',
+      'API key is not authorized to read assets',
+      403,
+      { resource: 'assets', action: 'read' },
+      requestId
+    )
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    const responseBody = await response.clone().json()
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 403, body: responseBody },
+        startTime,
+        undefined,
+        'Permission denied: assets.read'
+      )
+    )
+
+    return response
+  }
 
   try {
     // Parse query parameters

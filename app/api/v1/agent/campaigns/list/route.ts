@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   authenticateAgentRequest,
   addAgentApiHeaders,
+  hasAgentPermission,
 } from '@/lib/agent-api-middleware'
 import { CampaignListQuerySchema } from '@/lib/agent-api-schemas'
 import {
@@ -10,6 +11,7 @@ import {
   createValidationErrorResponse,
   createUnknownErrorResponse,
   DatabaseError,
+  ForbiddenError,
   createErrorResponse,
 } from '@/lib/agent-api-errors'
 import { logAuditEntry, createAuditEntry } from '@/lib/agent-audit-logger'
@@ -32,7 +34,30 @@ export async function GET(request: NextRequest) {
     return authResult.response
   }
 
-  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit, permissions } = authResult
+
+  if (!hasAgentPermission(permissions, 'campaigns', 'read')) {
+    const response = createErrorResponse(
+      new ForbiddenError('API key is not authorized to read campaigns'),
+      requestId
+    )
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    const responseBody = await response.clone().json()
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 403, body: responseBody },
+        startTime,
+        undefined,
+        'Permission denied: campaigns.read'
+      )
+    )
+
+    return response
+  }
 
   try {
     // Validate query parameters with Zod schema

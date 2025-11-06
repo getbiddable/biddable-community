@@ -5,6 +5,7 @@ import {
   createErrorResponse,
   generateRequestId,
   addAgentApiHeaders,
+  hasAgentPermission,
 } from '@/lib/agent-api-middleware'
 import { validateCampaignBudget, formatBudgetError } from '@/lib/agent-budget-validator'
 import { z } from 'zod'
@@ -39,7 +40,33 @@ export async function PATCH(
     return authResult.response
   }
 
-  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit, permissions } = authResult
+
+  if (!hasAgentPermission(permissions, 'campaigns', 'write')) {
+    const response = createErrorResponse(
+      'FORBIDDEN',
+      'API key is not authorized to update campaigns',
+      403,
+      { resource: 'campaigns', action: 'write' },
+      requestId
+    )
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    const responseBody = await response.clone().json()
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 403, body: responseBody },
+        startTime,
+        undefined,
+        'Permission denied: campaigns.write'
+      )
+    )
+
+    return response
+  }
 
   try {
     const campaignId = parseInt(params.id)

@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   authenticateAgentRequest,
   addAgentApiHeaders,
+  hasAgentPermission,
 } from '@/lib/agent-api-middleware'
 import {
   createUnknownErrorResponse,
@@ -30,7 +31,30 @@ export async function GET(
     return authResult.response
   }
 
-  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit, permissions } = authResult
+
+  if (!hasAgentPermission(permissions, 'campaigns', 'read')) {
+    const response = createErrorResponse(
+      new ForbiddenError('API key is not authorized to read campaigns'),
+      requestId
+    )
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    const responseBody = await response.clone().json()
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 403, body: responseBody },
+        startTime,
+        undefined,
+        'Permission denied: campaigns.read'
+      )
+    )
+
+    return response
+  }
 
   try {
     const campaignId = parseInt(params.id)

@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   authenticateAgentRequest,
   addAgentApiHeaders,
+  hasAgentPermission,
 } from '@/lib/agent-api-middleware'
 import { validateCampaignBudget } from '@/lib/agent-budget-validator'
 import { CampaignCreateSchema } from '@/lib/agent-api-schemas'
@@ -13,6 +14,7 @@ import {
   BudgetExceededError,
   DatabaseError,
   InternalError,
+  ForbiddenError,
   createErrorResponse,
 } from '@/lib/agent-api-errors'
 import { logAuditEntry, createAuditEntry } from '@/lib/agent-audit-logger'
@@ -40,7 +42,30 @@ export async function POST(request: NextRequest) {
     return authResult.response
   }
 
-  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit, permissions } = authResult
+
+  if (!hasAgentPermission(permissions, 'campaigns', 'write')) {
+    const response = createErrorResponse(
+      new ForbiddenError('API key is not authorized to create campaigns'),
+      requestId
+    )
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    const responseBody = await response.clone().json()
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 403, body: responseBody },
+        startTime,
+        undefined,
+        'Permission denied: campaigns.write'
+      )
+    )
+
+    return response
+  }
 
   try {
     // Validate request body with Zod schema

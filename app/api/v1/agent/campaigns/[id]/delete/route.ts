@@ -5,6 +5,7 @@ import {
   createErrorResponse,
   generateRequestId,
   addAgentApiHeaders,
+  hasAgentPermission,
 } from '@/lib/agent-api-middleware'
 import { logAuditEntry, createAuditEntry } from '@/lib/agent-audit-logger'
 
@@ -24,7 +25,33 @@ export async function DELETE(
     return authResult.response
   }
 
-  const { apiKeyId, organizationId, requestId, rateLimit } = authResult
+  const { apiKeyId, organizationId, requestId, rateLimit, permissions } = authResult
+
+  if (!hasAgentPermission(permissions, 'campaigns', 'delete')) {
+    const response = createErrorResponse(
+      'FORBIDDEN',
+      'API key is not authorized to delete campaigns',
+      403,
+      { resource: 'campaigns', action: 'delete' },
+      requestId
+    )
+    addAgentApiHeaders(response.headers, requestId, rateLimit)
+
+    const responseBody = await response.clone().json()
+    logAuditEntry(
+      createAuditEntry(
+        apiKeyId,
+        organizationId,
+        request,
+        { status: 403, body: responseBody },
+        startTime,
+        undefined,
+        'Permission denied: campaigns.delete'
+      )
+    )
+
+    return response
+  }
 
   try {
     const campaignId = parseInt(params.id)
