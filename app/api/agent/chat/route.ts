@@ -23,7 +23,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { getOrCreateHostedAgentApiKey } from '@/lib/agent-api-keys'
 import { callOpenAI, getSystemPrompt } from '@/lib/ai/openai-client'
 import { AGENT_TOOLS } from '@/lib/ai/agent-tools'
-import { executeAgentTool } from '@/lib/ai/tool-executor'
+import { executeMCPTool } from '@/lib/ai/mcp-client'
 import type { Message } from '@/lib/ai/openai-client'
 import { logger } from '@/lib/logger'
 
@@ -131,14 +131,61 @@ export async function POST(request: NextRequest) {
         .select('id')
         .single()
 
-      if (conversationError || !newConversation) {
+      console.log('=== CONVERSATION INSERT RESULT ===')
+      console.log('Error:', conversationError)
+      console.log('Error type:', typeof conversationError)
+      console.log('Error keys:', Object.keys(conversationError || {}))
+      console.log('Error stringified:', JSON.stringify(conversationError))
+      console.log('Data:', newConversation)
+      console.log('Data stringified:', JSON.stringify(newConversation))
+      console.log('==================================')
+
+      // Check if there's any error at all
+      if (conversationError && Object.keys(conversationError).length > 0) {
+        console.error('=== CONVERSATION CREATION ERROR ===')
+        console.error('Error details:', conversationError)
+        console.error('Error message:', conversationError.message)
+        console.error('Error code:', conversationError.code)
+        console.error('Organization ID:', organizationId)
+        console.error('User ID:', user.id)
+        console.error('===================================')
+
         logger.error('Failed to create conversation', conversationError)
         return NextResponse.json(
           {
             success: false,
             error: {
               code: 'DATABASE_ERROR',
-              message: 'Failed to create conversation',
+              message: `Failed to create conversation: ${conversationError.message || 'Unknown error'}`,
+            },
+          },
+          { status: 500 }
+        )
+      }
+
+      // Empty error object means Supabase returned an error but it's malformed
+      if (conversationError && Object.keys(conversationError).length === 0) {
+        console.error('=== EMPTY ERROR OBJECT ===')
+        console.error('Supabase returned an error but it has no properties')
+        console.error('This usually means the table does not exist or there is an RLS issue')
+        console.error('Check if agent_conversations table exists in your database')
+        console.error('==========================')
+      }
+
+      if (!newConversation) {
+        console.error('=== NO CONVERSATION DATA RETURNED ===')
+        console.error('Insert succeeded but no data returned')
+        console.error('This might be an RLS or SELECT issue')
+        console.error('Organization ID:', organizationId)
+        console.error('User ID:', user.id)
+        console.error('======================================')
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: 'DATABASE_ERROR',
+              message: 'Conversation created but unable to retrieve ID',
             },
           },
           { status: 500 }
@@ -255,18 +302,21 @@ export async function POST(request: NextRequest) {
         messages,
         tools: AGENT_TOOLS,
         onToolCall: async ({ id, name, args }) => {
-          // 10. Execute tool calls server-side
-          logger.info('Agent executing tool', { toolName: name, args })
+          // 10. Execute tool calls via MCP server
+          logger.info('Agent executing tool via MCP', { toolName: name, args })
 
-          const result = await executeAgentTool(name, args, {
-            apiKey,
-            organizationId,
-            userId: user.id,
-            baseUrl,
-          })
-
-          toolCalls.push({ id, name, args, result })
-          return result
+          try {
+            const result = await executeMCPTool(name, args)
+            toolCalls.push({ id, name, args, result })
+            return result
+          } catch (error) {
+            logger.error('MCP tool execution failed', { toolName: name, error })
+            const errorResult = {
+              error: error instanceof Error ? error.message : 'Tool execution failed',
+            }
+            toolCalls.push({ id, name, args, result: errorResult })
+            return errorResult
+          }
         },
       })
     } catch (error) {

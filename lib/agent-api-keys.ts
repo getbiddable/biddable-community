@@ -336,12 +336,24 @@ export async function getOrCreateHostedAgentApiKey(organizationId: string): Prom
   const keyPrefix = getKeyPrefix(apiKey)
   const encryptedKey = encrypt(apiKey)
 
+  // Get a user from the organization to use as created_by
+  const { data: orgMember, error: memberError } = await supabase
+    .from('organization_members')
+    .select('user_id')
+    .eq('organization_id', organizationId)
+    .limit(1)
+    .single()
+
+  if (memberError || !orgMember) {
+    throw new Error(`Failed to find user for organization: ${memberError?.message || 'No members found'}`)
+  }
+
   // Insert new API key with encrypted version
   const { data: newKey, error: insertError } = await supabase
     .from('api_keys')
     .insert({
       organization_id: organizationId,
-      created_by: organizationId, // System-generated, use org ID as creator
+      created_by: orgMember.user_id, // Use actual user ID from organization
       key_hash: keyHash,
       key_prefix: keyPrefix,
       encrypted_key: encryptedKey,

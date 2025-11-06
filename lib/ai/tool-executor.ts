@@ -164,11 +164,12 @@ function getToolRequestBody(toolName: string, args: Record<string, unknown>): Re
   switch (toolName) {
     case 'create_campaign':
       return {
-        campaign_name: args.campaign_name,
+        name: args.campaign_name,
+        platforms: [args.platform], // Wrap single platform in array for backend
         budget: args.budget,
         start_date: args.start_date,
         end_date: args.end_date,
-        description: args.description,
+        goal: args.goal,
       }
 
     case 'assign_asset_to_campaign':

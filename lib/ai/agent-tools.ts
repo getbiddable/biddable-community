@@ -63,13 +63,18 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'create_campaign',
-      description: 'Create a new campaign. Automatically validates against the $10,000 monthly budget limit. Requires campaign name, budget, start date, and end date.',
+      description: 'Create a new campaign. Automatically validates against the $10,000 monthly budget limit. Each campaign runs on a single platform. Requires campaign name, platform, budget, start date, and end date.',
       parameters: {
         type: 'object',
         properties: {
           campaign_name: {
             type: 'string',
             description: 'Name of the campaign',
+          },
+          platform: {
+            type: 'string',
+            enum: ['google', 'youtube', 'reddit', 'meta'],
+            description: 'Single platform to run the campaign on (must be one of: google, youtube, reddit, meta)',
           },
           budget: {
             type: 'number',
@@ -83,12 +88,12 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
             type: 'string',
             description: 'Campaign end date in YYYY-MM-DD format',
           },
-          description: {
+          goal: {
             type: 'string',
-            description: 'Optional campaign description',
+            description: 'Optional campaign goal or description',
           },
         },
-        required: ['campaign_name', 'budget', 'start_date', 'end_date'],
+        required: ['campaign_name', 'platform', 'budget', 'start_date', 'end_date'],
       },
     },
   },

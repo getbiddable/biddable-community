@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Send,
   Sparkles,
+  Trash2,
   User,
   Workflow,
 } from "lucide-react"
@@ -208,6 +209,46 @@ export function AgentChatWidget() {
     setInputValue("")
   }
 
+  const handleDeleteConversation = async (conversationId: string, event: React.MouseEvent) => {
+    event.stopPropagation() // Prevent selecting the conversation
+
+    if (!confirm('Delete this conversation? This cannot be undone.')) {
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from('agent_conversations')
+        .delete()
+        .eq('id', conversationId)
+
+      if (error) {
+        throw error
+      }
+
+      // If deleting active conversation, clear it
+      if (activeConversationId === conversationId) {
+        setActiveConversationId(null)
+        setMessages([])
+      }
+
+      // Refresh conversation list
+      fetchConversations()
+
+      toast({
+        title: 'Conversation deleted',
+        description: 'The conversation has been removed.',
+      })
+    } catch (error) {
+      console.error('Failed to delete conversation:', error)
+      toast({
+        variant: 'destructive',
+        title: 'Delete failed',
+        description: error instanceof Error ? error.message : 'Could not delete conversation.',
+      })
+    }
+  }
+
   const handleSuggestionClick = (suggestion: string) => {
     setInputValue(suggestion)
   }
@@ -343,24 +384,32 @@ export function AgentChatWidget() {
             <MessageCircle className="h-4 w-4" />
             Conversations
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <Button
-              size="icon"
+              size="sm"
               variant="ghost"
               onClick={fetchConversations}
               disabled={loadingConversations}
               aria-label="Refresh conversations"
+              className="h-8 w-8 p-0"
             >
               <RefreshCw className={cn("h-4 w-4", loadingConversations && "animate-spin")} />
             </Button>
-            <Button size="icon" onClick={handleStartNewConversation} aria-label="Start new conversation">
+            <Button
+              size="sm"
+              variant="default"
+              onClick={handleStartNewConversation}
+              aria-label="Start new conversation"
+              className="h-8 gap-1.5 px-3"
+            >
               <Plus className="h-4 w-4" />
+              <span className="text-xs font-medium">New</span>
             </Button>
           </div>
         </div>
 
-        <ScrollArea className="h-full max-h-[300px] md:max-h-none">
-          <div className="space-y-1 px-2 pb-4 md:px-3">
+        <ScrollArea className="h-[calc(100vh-12rem)] max-h-[300px] md:h-[calc(100vh-10rem)] md:max-h-none">
+          <div className="space-y-1 px-2 pb-4 pt-2 md:px-3">
             {loadingConversations ? (
               <div className="flex items-center gap-2 px-2 py-8 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -375,33 +424,52 @@ export function AgentChatWidget() {
                 const isActive = activeConversationId === conversation.id
 
                 return (
-                  <button
+                  <div
                     key={conversation.id}
-                    type="button"
-                    onClick={() => handleSelectConversation(conversation.id)}
                     className={cn(
-                      "w-full rounded-md px-3 py-2 text-left text-sm transition",
+                      "group relative w-full rounded-md transition",
                       isActive
                         ? "bg-primary text-primary-foreground shadow-sm"
                         : "text-foreground hover:bg-muted/70"
                     )}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="font-medium leading-snug">
-                        {conversation.title ?? "Untitled conversation"}
-                      </span>
-                      {conversation.last_message_at && (
-                        <span className="text-xs text-muted-foreground/80">
-                          {formatDistanceToNow(new Date(conversation.last_message_at), { addSuffix: true })}
+                    <button
+                      type="button"
+                      onClick={() => handleSelectConversation(conversation.id)}
+                      className="w-full px-3 py-2 text-left text-sm"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="flex-1 font-medium leading-snug pr-8">
+                          {conversation.title ?? "Untitled conversation"}
                         </span>
+                        {conversation.last_message_at && (
+                          <span className={cn(
+                            "text-xs",
+                            isActive ? "text-primary-foreground/70" : "text-muted-foreground/80"
+                          )}>
+                            {formatDistanceToNow(new Date(conversation.last_message_at), { addSuffix: true })}
+                          </span>
+                        )}
+                      </div>
+                      {conversation.status === "archived" && (
+                        <Badge variant="outline" className="mt-2 bg-muted text-xs">
+                          Archived
+                        </Badge>
                       )}
-                    </div>
-                    {conversation.status === "archived" && (
-                      <Badge variant="outline" className="mt-2 bg-muted text-xs">
-                        Archived
-                      </Badge>
-                    )}
-                  </button>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteConversation(conversation.id, e)}
+                      className={cn(
+                        "absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100",
+                        "rounded p-1 hover:bg-destructive/10",
+                        isActive && "text-primary-foreground hover:bg-destructive/20"
+                      )}
+                      aria-label="Delete conversation"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 )
               })
             )}
