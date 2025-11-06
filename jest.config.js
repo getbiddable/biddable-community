@@ -15,6 +15,10 @@ const config = {
     '**/?(*.)+(spec|test).ts'
   ],
 
+  testPathIgnorePatterns: [
+    '<rootDir>/test/agent-api/setup.ts'
+  ],
+
   // Module path aliases (match tsconfig.json)
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1'
@@ -56,6 +60,8 @@ const config = {
 
   // Verbose output
   verbose: true,
+
+  maxWorkers: 1,
 
   // Test timeout (30 seconds for API tests)
   testTimeout: 30000
