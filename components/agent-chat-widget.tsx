@@ -6,6 +6,8 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
   Bot,
+  ChevronDown,
+  ChevronUp,
   Loader2,
   MessageCircle,
   Plus,
@@ -87,6 +89,7 @@ export function AgentChatWidget() {
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [hasSelectedConversation, setHasSelectedConversation] = useState(false)
+  const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set())
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
 
@@ -436,11 +439,18 @@ export function AgentChatWidget() {
                     <button
                       type="button"
                       onClick={() => handleSelectConversation(conversation.id)}
-                      className="w-full px-3 py-2 text-left text-sm"
+                      className="w-full px-3 py-1.5 text-left text-sm"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="flex-1 font-medium leading-snug pr-8">
-                          {conversation.title ?? "Untitled conversation"}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex-1 font-medium truncate pr-8">
+                          {(() => {
+                            const title = conversation.title ?? "Untitled conversation"
+                            const words = title.split(/\s+/)
+                            if (words.length > 5) {
+                              return words.slice(0, 5).join(' ') + '...'
+                            }
+                            return title
+                          })()}
                         </span>
                         {conversation.last_message_at && (
                           <span className={cn(
@@ -548,44 +558,73 @@ export function AgentChatWidget() {
 
                           {!isUser && message.tool_calls && message.tool_calls.length > 0 && (
                             <div className="mt-3 space-y-3">
-                              {message.tool_calls.map((toolCall, index) => (
-                                <div
-                                  key={toolCall.id ?? `${message.id}-tool-${index}`}
-                                  className="rounded-md border border-border/60 bg-background/90 p-3 text-xs"
-                                >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-2 font-semibold text-foreground">
-                                      <Workflow className="h-3.5 w-3.5 text-primary" />
-                                      <span>{toolCall.name ?? "Tool call"}</span>
-                                    </div>
-                                    <Badge variant="outline" className="bg-muted/60">
-                                      Tool
-                                    </Badge>
+                              {message.tool_calls.map((toolCall, index) => {
+                                const toolCallKey = toolCall.id ?? `${message.id}-tool-${index}`
+                                const isExpanded = expandedToolCalls.has(toolCallKey)
+
+                                return (
+                                  <div
+                                    key={toolCallKey}
+                                    className="rounded-md border border-border/60 bg-background/90 text-xs"
+                                  >
+                                    <button
+                                      onClick={() => {
+                                        setExpandedToolCalls(prev => {
+                                          const next = new Set(prev)
+                                          if (next.has(toolCallKey)) {
+                                            next.delete(toolCallKey)
+                                          } else {
+                                            next.add(toolCallKey)
+                                          }
+                                          return next
+                                        })
+                                      }}
+                                      className="flex w-full items-center justify-between gap-2 p-3 text-left hover:bg-muted/20 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-2 font-semibold text-foreground">
+                                        <Workflow className="h-3.5 w-3.5 text-primary" />
+                                        <span>{toolCall.name ?? "Tool call"}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="outline" className="bg-muted/60">
+                                          Tool
+                                        </Badge>
+                                        {isExpanded ? (
+                                          <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+                                        ) : (
+                                          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                                        )}
+                                      </div>
+                                    </button>
+
+                                    {isExpanded && (
+                                      <div className="border-t border-border/60 p-3 pt-2">
+                                        {toolCall.args && Object.keys(toolCall.args).length > 0 && (
+                                          <div className="mt-2">
+                                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                                              Arguments
+                                            </div>
+                                            <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted/60 p-2 text-[11px] leading-relaxed">
+                                              {formatJson(toolCall.args)}
+                                            </pre>
+                                          </div>
+                                        )}
+
+                                        {toolCall.result !== undefined && toolCall.result !== null && (
+                                          <div className="mt-2">
+                                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                                              Result
+                                            </div>
+                                            <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[11px] leading-relaxed">
+                                              {formatJson(toolCall.result)}
+                                            </pre>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
-
-                                  {toolCall.args && Object.keys(toolCall.args).length > 0 && (
-                                    <div className="mt-2">
-                                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                                        Arguments
-                                      </div>
-                                      <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted/60 p-2 text-[11px] leading-relaxed">
-                                        {formatJson(toolCall.args)}
-                                      </pre>
-                                    </div>
-                                  )}
-
-                                  {toolCall.result !== undefined && toolCall.result !== null && (
-                                    <div className="mt-2">
-                                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                                        Result
-                                      </div>
-                                      <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[11px] leading-relaxed">
-                                        {formatJson(toolCall.result)}
-                                      </pre>
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
+                                )
+                              })}
                             </div>
                           )}
                         </div>

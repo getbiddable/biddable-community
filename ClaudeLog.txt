@@ -3146,3 +3146,93 @@ Follow-up messages should now work properly. Try:
 2. Ask "what campaigns do we have?"
 3. The agent should successfully call list_campaigns tool and respond
 
+
+## 2025-11-07 - Truncated Conversation Titles in Sidebar
+
+### Problem
+Conversation titles in the left sidebar were too long, making the conversation tiles excessively large and hard to scan.
+
+### Solution
+Added truncation logic to limit conversation titles to 10 words maximum, appending "..." if truncated.
+
+### Files Changed
+- components/agent-chat-widget.tsx:443-450 - Added inline truncation logic to conversation title display
+
+### Implementation
+Splits title by whitespace, keeps first 10 words, and appends "..." if title exceeded 10 words.
+
+Example:
+- Before: "Create a campaign for my winter clothing sale targeting young professionals. Make up the details and"
+- After: "Create a campaign for my winter clothing sale targeting..."
+
+
+## 2025-11-07 - Made Conversation Tiles More Compact
+
+### Problem
+Even with text truncation, conversation tiles were still too large vertically.
+
+### Solution
+Reduced tile height by:
+1. Reduced vertical padding from py-2 (8px) to py-1.5 (6px)
+2. Changed flex alignment from items-start to items-center for better vertical centering
+3. Added CSS truncate class for single-line ellipsis
+4. Reduced right padding from pr-8 (32px) to pr-2 (8px)
+
+### Files Changed
+- components/agent-chat-widget.tsx:439,441-442 - Reduced padding and added truncate styling
+
+### Result
+Conversation tiles are now much more compact and easier to scan in the sidebar.
+
+
+## 2025-11-07 - Made Tool Call Details Collapsible
+
+### Problem
+Tool call details (arguments and results) were always visible in the chat UI, taking up a lot of space and making it harder for end users to focus on the conversation.
+
+### Solution
+Made tool call sections collapsible with the following features:
+- Collapsed by default (only showing tool name and badge)
+- Clickable header to expand/collapse
+- Chevron icon (down/up) to indicate state
+- Smooth hover effect on the header
+- Arguments and Results only visible when expanded
+
+### Files Changed
+- components/agent-chat-widget.tsx:9-10 - Added ChevronDown and ChevronUp imports
+- components/agent-chat-widget.tsx:92 - Added expandedToolCalls state (Set<string>)
+- components/agent-chat-widget.tsx:561-627 - Converted tool call display to collapsible component
+
+### Implementation Details
+- Each tool call is tracked by a unique key (tool ID or fallback)
+- State uses a Set to track which tool calls are expanded
+- Click handler toggles the expansion state
+- Collapsed view shows: tool icon, name, badge, and chevron
+- Expanded view shows: arguments (if any) and result (if any)
+
+### User Experience
+- End users see a cleaner chat interface by default
+- Developers can still expand tool calls to see technical details when debugging
+- Each tool call can be independently expanded/collapsed
+
+
+## 2025-11-07 - Reduced Conversation Title Truncation to 5 Words
+
+### Problem
+Conversation titles truncated at 10 words were still too long and hiding the trash icon that appears on hover.
+
+### Solution
+1. Reduced truncation from 10 words to 5 words
+2. Increased right padding from pr-2 (8px) to pr-8 (32px) to ensure space for the trash icon
+
+### Files Changed
+- components/agent-chat-widget.tsx:449-450 - Changed truncation limit from 10 to 5 words
+- components/agent-chat-widget.tsx:445 - Increased right padding from pr-2 to pr-8
+
+### Examples
+- Before: "Create a campaign for my winter clothing sale targeting..."
+- After: "Create a campaign for my..."
+
+### Result
+Conversation titles are now shorter, making the list more scannable and ensuring the trash icon has space to appear on hover.
+
