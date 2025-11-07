@@ -157,12 +157,19 @@ export class MCPClient {
    * Execute a tool
    */
   async executeTool(name: string, args: Record<string, unknown>): Promise<MCPToolResult> {
-    const result = await this.sendRequest('tools/call', {
-      name,
-      arguments: args,
-    });
+    try {
+      const result = await this.sendRequest('tools/call', {
+        name,
+        arguments: args,
+      });
 
-    return result;
+      return result;
+    } catch (error) {
+      console.error('[MCP Client] Tool execution error:', error);
+      console.error('[MCP Client] Tool name:', name);
+      console.error('[MCP Client] Tool args:', JSON.stringify(args, null, 2));
+      throw error;
+    }
   }
 
   /**
@@ -197,11 +204,20 @@ export async function executeMCPTool(name: string, args: Record<string, unknown>
   const client = await getMCPClient();
   const result = await client.executeTool(name, args);
 
+  console.log('[MCP Tool] Result:', JSON.stringify(result, null, 2));
+
   if (result.isError) {
-    throw new Error(result.content[0]?.text || 'Tool execution failed');
+    const errorText = result.content[0]?.text || 'Tool execution failed';
+    console.error('[MCP Tool] Error result:', errorText);
+    throw new Error(errorText);
   }
 
   // Parse JSON response
   const text = result.content[0]?.text || '{}';
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    console.error('[MCP Tool] Failed to parse result as JSON:', text);
+    throw new Error(`Invalid JSON response from MCP tool: ${text}`);
+  }
 }

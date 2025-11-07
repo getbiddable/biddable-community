@@ -193,6 +193,7 @@ export async function POST(request: NextRequest) {
         start_date: data.start_date,
         end_date: data.end_date,
         goal: data.goal,
+        organization_id: organizationId,
         created_by: orgMembers.user_id,
         status: true, // Active by default
         payment_status: 'pending',

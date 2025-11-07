@@ -3010,3 +3010,39 @@ ALL identified vulnerabilities have been resolved!
 5. Test chat proxy with URL-encoded paths
 6. Verify all validation error messages are clear
 
+
+## 2025-11-07 - Fixed Agent Retry Loop Issue
+
+### Problem
+Agent was stuck in a retry loop when trying to create campaigns. Getting 404 errors from the campaign creation API.
+
+### Root Cause
+The MCP server was using `NEXT_PUBLIC_APP_URL` (https://72b292ac0053.ngrok-free.app) which pointed to port 1234 (local LLM), but the Next.js API runs on port 3000. This caused all API calls to fail with 404 errors from ngrok.
+
+### Solution
+Changed MCP server to use `http://localhost:3000` directly instead of the ngrok URL, since the MCP server runs locally alongside the Next.js app.
+
+### File Changed
+- mcp-server/index.js:25 - Changed `AGENT_API_BASE` to use `process.env.AGENT_API_BASE` or default to `http://localhost:3000`
+
+### Testing
+Agent chat widget should now successfully create campaigns without retry loops.
+
+
+## 2025-11-07 - Fixed Campaign Creation Missing organization_id
+
+### Problem
+Campaign creation via agent was failing with error: "null value in column 'organization_id' of relation 'campaigns' violates not-null constraint"
+
+### Root Cause
+The campaign creation endpoint was extracting `organizationId` from the authentication result but was not including it in the database insert statement.
+
+### Solution
+Added `organization_id: organizationId` to the campaign insert object at line 196 of the campaign creation route.
+
+### File Changed
+- app/api/v1/agent/campaigns/create/route.ts:196 - Added organization_id field to the insert statement
+
+### Testing
+Agent should now successfully create campaigns with proper organization_id set.
+

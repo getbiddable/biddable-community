@@ -20,7 +20,9 @@ import dotenv from 'dotenv';
 
 dotenv.config({ path: '../.env.local' });
 
-const AGENT_API_BASE = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+// MCP server runs locally, so always use localhost
+// NEXT_PUBLIC_APP_URL is for external access (ngrok), not for local API calls
+const AGENT_API_BASE = process.env.AGENT_API_BASE || 'http://localhost:3000';
 const AGENT_API_KEY = process.env.TEST_API_KEY;
 
 if (!AGENT_API_KEY) {
@@ -258,9 +260,31 @@ async function executeTool(name, args) {
     }
 
     const response = await fetch(url, options);
-    const data = await response.json();
+
+    console.error(`[MCP] Response status: ${response.status}`);
+    console.error(`[MCP] Response headers:`, Object.fromEntries(response.headers.entries()));
+
+    let data;
+    const responseText = await response.text();
+    console.error(`[MCP] Response text (first 500 chars):`, responseText.substring(0, 500));
+
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error(`[MCP] Failed to parse response as JSON:`, parseError);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error: Agent API returned non-JSON response\n\nStatus: ${response.status}\n\nResponse: ${responseText.substring(0, 500)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
 
     if (!response.ok) {
+      console.error(`[MCP] Agent API error:`, data);
       return {
         content: [
           {
@@ -281,11 +305,12 @@ async function executeTool(name, args) {
       ],
     };
   } catch (error) {
+    console.error(`[MCP] Exception in executeTool:`, error);
     return {
       content: [
         {
           type: 'text',
-          text: `Error executing tool: ${error.message}`,
+          text: `Error executing tool: ${error.message}\n\nStack: ${error.stack}`,
         },
       ],
       isError: true,
