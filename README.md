@@ -4,7 +4,43 @@
 
 **Biddable Community Edition** is an open-source advertising platform for SMBs (Small and Medium Businesses) that allows users to manage advertising campaigns across multiple platforms. Users can create campaigns, upload creative assets, define target audiences, and assign both to campaigns for comprehensive ad management.
 
+**New in v0.2.0**: Biddable now features **AI Agent integration**, allowing AI assistants to programmatically create and manage campaigns through a comprehensive Agent API and MCP (Model Context Protocol) server.
+
 This is the community-driven version of Biddable, licensed under AGPL-3.0.
+
+## 🤖 What's New in v0.2.0 - AI Agent Integration
+
+Version 0.2.0 introduces powerful agentic advertising capabilities:
+
+### Agent API
+- **RESTful API** for AI agents and automation tools
+- **Secure authentication** with organization-scoped API keys
+- **Complete campaign lifecycle management** (create, read, update, delete)
+- **Asset and audience assignment** via API
+- **Budget controls** with $10,000/month org limits
+- **Rate limiting** to prevent abuse (1000 req/hour)
+- **Comprehensive error handling** with detailed error codes
+
+### MCP Server Integration
+- **Model Context Protocol** server for tool execution
+- **Works with any LLM** (OpenAI, Claude, local models)
+- **11+ tools** for campaign, asset, and audience management
+- **Claude Desktop compatible** - manage campaigns from Claude Desktop app
+- **Localhost-only** for security (stdio communication)
+- **Auto-starts** as child process with Next.js app
+
+### Use Cases
+- **Conversational campaign creation**: "Create a Reddit campaign for winter sale with $5000 budget"
+- **Bulk operations**: AI agents can create multiple campaigns programmatically
+- **Workflow automation**: Integrate with existing marketing automation tools
+- **Natural language interface**: Non-technical users can create campaigns via chat
+- **Cross-platform orchestration**: Manage Google, Reddit, YouTube, and Meta campaigns through one API
+
+### Documentation
+- Complete Agent API docs in `docs/agent-api/`
+- MCP setup guide in `MCP_SETUP.md`
+- API reference with examples (curl, Python, JavaScript)
+- Comprehensive error codes and handling guide
 
 ## Tech Stack
 
@@ -13,6 +49,8 @@ This is the community-driven version of Biddable, licensed under AGPL-3.0.
 - **Authentication**: Supabase Auth (email/password)
 - **Database**: Supabase (PostgreSQL)
 - **Storage**: Supabase Storage (for image uploads)
+- **AI Integration**: Model Context Protocol (MCP) server, Agent API with OpenAI SDK
+- **API Security**: bcrypt key hashing, rate limiting, budget controls
 - **Styling**: Tailwind CSS with dark mode by default
 - **Package Manager**: pnpm
 
@@ -22,44 +60,51 @@ This is the community-driven version of Biddable, licensed under AGPL-3.0.
 bid-app/
 ├── app/                          # Next.js 14 App Router
 │   ├── api/                      # API routes
+│   │   ├── v1/agent/            # 🤖 Agent API endpoints (NEW in v0.2)
+│   │   │   ├── campaigns/       # Campaign management
+│   │   │   ├── assets/          # Asset operations
+│   │   │   ├── audiences/       # Audience operations
+│   │   │   └── budget/          # Budget tracking
 │   │   ├── assets/              # Asset CRUD operations
 │   │   ├── audiences/           # Audience CRUD operations
 │   │   ├── campaigns/           # Campaign CRUD operations
 │   │   ├── chat/                # Chat widget backend
-│   │   └── profile/             # User profile data
+│   │   └── profile/             # User profile & API key management
+│   ├── agent-chat/              # 🤖 AI agent chat interface (NEW)
+│   ├── agent-logs/              # 🤖 Agent audit logs (NEW)
 │   ├── assets/                  # Creative assets page
 │   ├── audiences/               # Audiences management
-│   │   └── [id]/               # Dynamic audience detail pages
 │   ├── campaigns/               # Campaigns management
-│   │   └── [id]/               # Dynamic campaign detail pages
 │   ├── login/                   # Login page
-│   ├── signup/                  # Signup page
 │   ├── profile/                 # User profile page
-│   ├── reporting/               # Reporting/analytics
-│   ├── layout.tsx               # Root layout with auth
-│   └── page.tsx                 # Dashboard (homepage)
+│   └── ...
 ├── components/                   # React components
 │   ├── ui/                      # shadcn/ui components
+│   ├── agent-chat-widget.tsx   # 🤖 AI agent chat (NEW)
 │   ├── asset-creator-content.tsx
-│   ├── audience-detail-content.tsx
-│   ├── audiences-content.tsx
-│   ├── campaign-detail-content.tsx
 │   ├── campaigns-content.tsx
-│   ├── chat-widget.tsx
-│   ├── dashboard-content.tsx
-│   ├── navigation.tsx
 │   └── ...
 ├── lib/                         # Utility libraries
+│   ├── ai/                      # 🤖 AI agent infrastructure (NEW)
+│   │   ├── mcp-client.ts       # MCP client for tool execution
+│   │   ├── openai-client.ts    # OpenAI SDK wrapper
+│   │   └── tool-executor.ts    # Agent tool definitions
 │   ├── supabase/               # Supabase client configs
-│   │   ├── client.ts           # Browser client
-│   │   └── server.ts           # Server client
-│   ├── auth.ts                 # Auth helper functions
-│   ├── auth-context.tsx        # Auth React context
-│   └── text-ads.ts             # Text ad validation
-├── supabase/
-│   └── migrations/             # SQL migrations
-├── middleware.ts               # Route protection
-├── ClaudeLog.txt              # Development history log
+│   ├── agent-api-keys.ts       # 🤖 API key management (NEW)
+│   ├── agent-rate-limiter.ts   # 🤖 Rate limiting (NEW)
+│   └── ...
+├── mcp-server/                  # 🤖 Model Context Protocol server (NEW)
+│   ├── index.js                # MCP server with 11 agent tools
+│   └── package.json            # MCP dependencies
+├── docs/                        # Documentation
+│   └── agent-api/              # 🤖 Agent API documentation (NEW)
+│       ├── README.txt          # API overview
+│       ├── getting-started.txt # Quick start guide
+│       ├── api-reference.txt   # Complete API reference
+│       ├── error-codes.txt     # Error handling
+│       └── examples.txt        # Code examples
+├── supabase/migrations/         # SQL migrations
+├── MCP_SETUP.md                # 🤖 MCP server setup guide (NEW)
 └── package.json
 ```
 
@@ -342,6 +387,57 @@ The app uses junction tables for flexible assignments:
 - **Features**: AI chat assistant with markdown rendering
 - **Backend**: `/api/chat` route
 
+### 7. 🤖 AI Agent Integration (NEW in v0.2.0)
+
+Biddable v0.2.0 introduces comprehensive AI agent capabilities for programmatic campaign management:
+
+#### Agent API (`/api/v1/agent/`)
+- **Authentication**: Secure API keys with bcrypt hashing and organization scoping
+- **Campaign Operations**: Full CRUD (Create, Read, Update, Delete) via RESTful API
+- **Asset Management**: List assets, assign to campaigns programmatically
+- **Audience Management**: List audiences, assign to campaigns programmatically
+- **Budget Tracking**: Real-time budget status with $10,000/month org limits
+- **Rate Limiting**: Configurable per-endpoint limits (1000 req/hour global)
+- **Audit Logging**: Complete request/response logging for compliance
+- **Error Handling**: Comprehensive error codes with detailed messages
+
+#### Model Context Protocol (MCP) Server
+- **Standards-Based**: Implements MCP spec for tool execution
+- **11+ Tools**: Campaign creation, updates, asset/audience management, budget checks
+- **Multi-LLM Support**: Works with OpenAI, Claude, local models (via OpenAI SDK)
+- **Claude Desktop Integration**: Manage campaigns directly from Claude Desktop app
+- **Secure by Default**: Localhost-only stdio communication (no network exposure)
+- **Auto-Managed**: Starts automatically with Next.js app, no manual setup
+
+#### Agent Chat Interface
+- **Natural Language**: Create campaigns via conversational interface
+- **Real-Time**: Streaming responses with tool execution visibility
+- **Context-Aware**: Maintains conversation history for complex workflows
+- **Error Recovery**: Graceful handling with helpful error messages
+
+#### API Key Management
+- **Self-Service**: Generate keys from user profile page
+- **Organization-Scoped**: Keys work across entire org
+- **Encrypted Storage**: bcrypt hashing with 10 rounds
+- **Revocable**: Disable keys instantly via dashboard
+- **Audit Trail**: Track all API key usage
+
+#### Use Case Examples
+```bash
+# Create campaign via API
+curl -X POST http://localhost:3000/api/v1/agent/campaigns/create \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"name": "Summer Sale", "platforms": ["reddit"], "budget": 5000, ...}'
+
+# Natural language via agent chat
+"Create a Reddit campaign for our winter sale with $5000 budget starting tomorrow"
+
+# Claude Desktop integration
+Use MCP tools directly from Claude Desktop to manage campaigns
+```
+
+See `docs/agent-api/` for complete API documentation and `MCP_SETUP.md` for MCP server setup.
+
 ## Database Schema Summary
 
 ### ID Types (Important!)
@@ -430,14 +526,24 @@ Before deploying:
 
 ## Documentation Files
 
-- **ClaudeLog.txt** - Complete development history with all changes
+### User Guides
+- **README.md** - This comprehensive setup and feature guide
+- **CONTRIBUTING.md** - Contribution guidelines
+- **MCP_SETUP.md** - 🤖 MCP server setup and configuration (NEW)
 - **AUDIENCES_SETUP.md** - Detailed audiences feature documentation
 - **CAMPAIGN_ASSETS_SETUP.md** - Asset assignment documentation
 - **IMAGE_UPLOAD_SETUP.md** - Image upload setup guide
-- **HANDOFF.md** - This file
+
+### Agent API Documentation (NEW in v0.2.0)
+- **docs/agent-api/README.txt** - Agent API overview and quick start
+- **docs/agent-api/getting-started.txt** - Step-by-step setup guide
+- **docs/agent-api/api-reference.txt** - Complete endpoint reference
+- **docs/agent-api/error-codes.txt** - Error handling guide
+- **docs/agent-api/examples.txt** - Code examples (curl, Python, JavaScript)
 
 ## Next Steps / Future Enhancements
 
+### Core Features
 - Dashboard with real campaign data (currently mock data)
 - Campaign editing and deletion
 - Bulk operations (assign multiple assets/audiences at once)
@@ -448,6 +554,16 @@ Before deploying:
 - Campaign performance reporting with real metrics
 - Multi-language support
 - Mobile responsive improvements
+
+### AI Agent Enhancements (v0.3.0+)
+- **Multi-modal agents**: Support for image and video analysis
+- **Advanced workflows**: Multi-step campaign optimization
+- **A/B testing automation**: Agent-driven creative testing
+- **Performance analytics**: AI-powered campaign insights
+- **Budget optimization**: Automatic budget allocation
+- **Cross-platform scheduling**: Intelligent ad scheduling
+- **Audience discovery**: AI-suggested targeting
+- **Creative generation**: Integrated AI creative tools
 
 ## Support & Questions
 
@@ -475,6 +591,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ---
 
-**Built with Next.js 14, TypeScript, Supabase, and Tailwind CSS**
+**Built with Next.js 14, TypeScript, Supabase, Tailwind CSS, and AI Agent capabilities**
 
-Last Updated: October 2025
+Version: 0.2.0
+Last Updated: November 2025
