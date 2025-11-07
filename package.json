@@ -1,7 +1,12 @@
 {
-  "name": "biddable-main",
-  "version": "0.1.0",
+  "name": "biddable-community",
+  "version": "0.2.0",
   "private": false,
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getbiddable/biddable-community.git"
+  },
   "scripts": {
     "build": "next build",
     "dev": "next dev",
