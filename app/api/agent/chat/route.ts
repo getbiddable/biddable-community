@@ -239,6 +239,10 @@ export async function POST(request: NextRequest) {
       },
     ]
 
+    // Debug: Log history from database
+    console.error('[Agent Chat] History from database:')
+    console.error(JSON.stringify(historyMessages, null, 2))
+
     // Add history in chronological order (oldest first)
     if (historyMessages && historyMessages.length > 0) {
       const chronologicalHistory = historyMessages.reverse()
@@ -248,8 +252,16 @@ export async function POST(request: NextRequest) {
           content: msg.content,
         }
 
+        // Convert tool_calls from database format to OpenAI format
         if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
-          baseMessage.tool_calls = msg.tool_calls as any
+          baseMessage.tool_calls = msg.tool_calls.map((tc: any) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: {
+              name: tc.name,
+              arguments: JSON.stringify(tc.args),
+            },
+          }))
         }
 
         messages.push(baseMessage)
@@ -260,7 +272,7 @@ export async function POST(request: NextRequest) {
           Array.isArray(msg.tool_calls) &&
           Array.isArray(msg.tool_results)
         ) {
-          for (const toolCall of msg.tool_calls as Array<{ id?: string }>) {
+          for (const toolCall of msg.tool_calls as Array<{ id?: string; name?: string }>) {
             if (!toolCall?.id) continue
 
             const matchingResult = (msg.tool_results as Array<{ id?: string; result?: unknown }>).find(
@@ -278,6 +290,7 @@ export async function POST(request: NextRequest) {
               messages.push({
                 role: 'tool',
                 tool_call_id: toolCall.id,
+                name: toolCall.name || 'unknown',
                 content: serializedResult,
               })
             }

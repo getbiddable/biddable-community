@@ -73,11 +73,13 @@ export async function callOpenAI(options: ChatOptions): Promise<string> {
       } as ChatCompletionMessageParam
     }
     if (msg.tool_call_id) {
+      // Note: name field required by some LLM APIs (Qwen, etc.)
       return {
         role: 'tool',
         content: msg.content,
         tool_call_id: msg.tool_call_id,
-      } as ChatCompletionMessageParam
+        name: msg.name,
+      } as any
     }
     return {
       role: msg.role,
@@ -89,6 +91,10 @@ export async function callOpenAI(options: ChatOptions): Promise<string> {
 
   while (iterations < maxIterations) {
     iterations++
+
+    // Debug: Log messages being sent to LLM
+    console.error('[OpenAI Client] Sending messages to LLM:')
+    console.error(JSON.stringify(currentMessages, null, 2))
 
     // Call OpenAI
     const response = await openai.chat.completions.create({
@@ -127,20 +133,23 @@ export async function callOpenAI(options: ChatOptions): Promise<string> {
             })
 
             // Add tool result to messages
+            // Note: name field required by some LLM APIs (Qwen, etc.)
             currentMessages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
+              name: toolName,
               content: JSON.stringify(result),
-            })
+            } as any)
           } catch (error) {
             // Add error as tool result
             currentMessages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
+              name: toolName,
               content: JSON.stringify({
                 error: error instanceof Error ? error.message : String(error),
               }),
-            })
+            } as any)
           }
         }
       }

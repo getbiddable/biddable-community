@@ -11,10 +11,10 @@ import { useState } from "react"
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
+  { name: "Ads Agent", href: "/agent-chat", icon: Bot },
   { name: "Campaigns", href: "/campaigns", icon: Target },
   { name: "Audiences", href: "/audiences", icon: Users },
   { name: "Creative", href: "/assets", icon: ImageIcon },
-  { name: "Campaign Agent", href: "/agent-chat", icon: Bot },
   { name: "Reporting", href: "/reporting", icon: BarChart3, disabled: true },
   { name: "Agent Logs", href: "/agent-logs", icon: FileText },
   { name: "Agent Analytics", href: "/agent-analytics", icon: TrendingUp },

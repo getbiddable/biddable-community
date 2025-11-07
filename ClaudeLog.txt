@@ -3046,3 +3046,103 @@ Added `organization_id: organizationId` to the campaign insert object at line 19
 ### Testing
 Agent should now successfully create campaigns with proper organization_id set.
 
+
+## 2025-11-07 - Renamed Campaign Agent to Ads Agent and Reordered Navigation
+
+### Changes
+1. Renamed "Campaign Agent" to "Ads Agent" throughout the application
+2. Moved "Ads Agent" to be second in the navigation menu, directly under Dashboard
+
+### Files Changed
+- components/navigation.tsx:14 - Changed "Campaign Agent" to "Ads Agent" and moved from position 5 to position 2
+- app/agent-chat/page.tsx:7,18 - Updated page title and heading from "Campaign Agent" to "Ads Agent"
+- components/agent-chat-widget.tsx:518 - Updated chat message label from "Campaign Agent" to "Ads Agent"
+
+### Navigation Order (New)
+1. Dashboard
+2. Ads Agent (moved from position 5)
+3. Campaigns
+4. Audiences
+5. Creative
+6. Reporting (Coming Soon)
+7. Agent Logs
+8. Agent Analytics
+
+
+## 2025-11-07 - Fixed Agent Follow-up Questions for Local LLM
+
+### Problem
+Agent worked for the first message but failed on follow-up questions with error from Qwen model:
+"Invalid 'messages' in payload. Please check the structure of your 'messages' and try again"
+
+### Root Cause
+When reconstructing conversation history for follow-up messages, tool result messages were missing the `name` field which is required by some LLM APIs (like Qwen) but not strictly required by OpenAI. The local Qwen model has stricter validation.
+
+### Solution
+Added the `name` field to tool messages in three places:
+1. When reconstructing tool messages from conversation history
+2. When converting Message objects to ChatCompletionMessageParam
+3. When creating new tool result messages during tool execution
+
+### Files Changed
+- app/api/agent/chat/route.ts:281 - Added name field when reconstructing tool messages from history
+- lib/ai/openai-client.ts:81 - Added name field in message conversion
+- lib/ai/openai-client.ts:135,143 - Added name field when creating new tool result messages
+
+### Technical Details
+Tool messages now include:
+- role: 'tool'
+- tool_call_id: string
+- name: string (the name of the tool that was called)
+- content: string (JSON-serialized result)
+
+Used type assertions (`as any`) to bypass OpenAI TypeScript definitions which don't include the name field in ChatCompletionToolMessageParam, even though the actual API accepts it.
+
+### Testing
+Agent should now successfully handle multi-turn conversations with tool calls when using local LLM (Qwen).
+
+
+## 2025-11-07 - Fixed Tool Calls Structure for Message History
+
+### Problem
+After successfully creating a campaign, follow-up messages failed with:
+"Invalid 'messages' in payload. Please check the structure of your 'messages' and try again."
+
+Debug logs revealed that tool_calls from conversation history had wrong structure.
+
+### Root Cause
+The database stores tool_calls in a simplified format:
+```json
+{
+  "id": "864914800",
+  "name": "create_campaign",
+  "args": {...}
+}
+```
+
+But OpenAI/LLM APIs expect this structure:
+```json
+{
+  "id": "864914800",
+  "type": "function",
+  "function": {
+    "name": "create_campaign",
+    "arguments": "{\"budget\":5000,...}"
+  }
+}
+```
+
+When reconstructing messages from history, we were using the database format directly without converting it back to OpenAI format, causing validation errors in Qwen.
+
+### Solution
+Added conversion logic in app/api/agent/chat/route.ts:256-264 to transform tool_calls from database format to OpenAI format when building message history.
+
+### Files Changed
+- app/api/agent/chat/route.ts:256-264 - Convert tool_calls structure when loading from database
+
+### Testing
+Follow-up messages should now work properly. Try:
+1. Create a campaign
+2. Ask "what campaigns do we have?"
+3. The agent should successfully call list_campaigns tool and respond
+

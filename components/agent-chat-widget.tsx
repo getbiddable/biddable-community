@@ -515,7 +515,7 @@ export function AgentChatWidget() {
                             ) : (
                               <Bot className="h-3.5 w-3.5" />
                             )}
-                            <span>{isUser ? "You" : "Campaign Agent"}</span>
+                            <span>{isUser ? "You" : "Ads Agent"}</span>
                             <span>•</span>
                             <span>{timestamp}</span>
                           </div>
