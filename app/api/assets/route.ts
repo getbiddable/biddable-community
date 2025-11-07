@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { logger } from "@/lib/logger"
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,11 +13,11 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (userError || !user) {
-      console.error("Auth error:", userError)
+      logger.error("Auth error in POST /api/assets", userError)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    console.log("Authenticated user:", user.email, "ID:", user.id)
+    logger.debug("Authenticated user", { email: user.email, userId: user.id })
 
     // Get user's organization
     const { data: orgData, error: orgError } = await supabase
@@ -25,10 +26,8 @@ export async function POST(request: NextRequest) {
       .eq("user_id", user.id)
       .single()
 
-    console.log("Org query result:", { orgData, orgError })
-
     if (orgError || !orgData) {
-      console.error("Organization error:", orgError)
+      logger.error("Organization error in POST /api/assets", orgError, { userId: user.id })
       return NextResponse.json({
         error: "No organization found for user",
         details: orgError?.message,
@@ -63,13 +62,13 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (insertError) {
-      console.error("Error inserting asset:", insertError)
+      logger.error("Error inserting asset", insertError, { userId: user.id, organizationId: orgData.organization_id })
       return NextResponse.json({ error: insertError.message }, { status: 500 })
     }
 
     return NextResponse.json({ success: true, asset }, { status: 201 })
   } catch (error) {
-    console.error("Error in POST /api/assets:", error)
+    logger.error("Error in POST /api/assets", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error occurred" },
       { status: 500 }
@@ -110,13 +109,13 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: false })
 
     if (fetchError) {
-      console.error("Error fetching assets:", fetchError)
+      logger.error("Error fetching assets", fetchError, { organizationId: orgData.organization_id })
       return NextResponse.json({ error: fetchError.message }, { status: 500 })
     }
 
     return NextResponse.json({ assets }, { status: 200 })
   } catch (error) {
-    console.error("Error in GET /api/assets:", error)
+    logger.error("Error in GET /api/assets", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error occurred" },
       { status: 500 }

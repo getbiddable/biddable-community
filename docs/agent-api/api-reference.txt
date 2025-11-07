@@ -1,0 +1,522 @@
+BIDDABLE AGENT API - API REFERENCE
+================================================================================
+
+BASE URL: /api/v1/agent
+Authentication: Bearer token required for all endpoints
+Rate Limit: Varies by endpoint (see individual endpoints)
+
+
+CAMPAIGNS
+================================================================================
+
+LIST CAMPAIGNS
+--------------
+GET /campaigns/list
+
+List all campaigns for your organization.
+
+Query Parameters:
+  limit      integer   Number of campaigns to return (default: 50, max: 100)
+  offset     integer   Number of campaigns to skip (default: 0)
+  status     string    Filter by status: "active" | "inactive" (optional)
+
+Rate Limit: 200 requests/hour
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "campaigns": [
+        {
+          "id": 123,
+          "campaign_name": "Summer Sale",
+          "platforms": ["google", "reddit"],
+          "budget": 5000,
+          "start_date": "2025-06-01",
+          "end_date": "2025-08-31",
+          "goal": "Drive sales",
+          "status": true,
+          "created_at": "2025-05-01T10:00:00Z",
+          "created_by": "user-uuid",
+          ...
+        }
+      ],
+      "pagination": {
+        "limit": 50,
+        "offset": 0,
+        "total": 150
+      }
+    }
+  }
+
+
+CREATE CAMPAIGN
+---------------
+POST /campaigns/create
+
+Create a new campaign.
+
+Rate Limit: 10 requests/hour
+
+Request Body:
+  {
+    "name": "string (1-100 chars, required)",
+    "platforms": ["google" | "youtube" | "reddit" | "meta"] (min 1, required),
+    "budget": integer (1-10000, required),
+    "start_date": "YYYY-MM-DD (required)",
+    "end_date": "YYYY-MM-DD (required, must be after start_date)",
+    "goal": "string (max 500 chars, optional)"
+  }
+
+Response:
+  201 Created
+  {
+    "success": true,
+    "data": {
+      "campaign": {
+        "id": 123,
+        "campaign_name": "Summer Sale",
+        ...
+      }
+    }
+  }
+
+Errors:
+  400 VALIDATION_ERROR - Invalid input data
+  400 BUDGET_EXCEEDED - Monthly budget limit exceeded
+
+
+GET CAMPAIGN
+------------
+GET /campaigns/{id}/get
+
+Get detailed information about a specific campaign including assigned
+assets and audiences.
+
+Path Parameters:
+  id         integer   Campaign ID (required)
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "campaign": {
+        "id": 123,
+        "campaign_name": "Summer Sale",
+        "campaign_assets": [...],
+        "campaign_audiences": [...],
+        ...
+      }
+    }
+  }
+
+Errors:
+  400 VALIDATION_ERROR - Invalid campaign ID
+  404 RESOURCE_NOT_FOUND - Campaign not found
+  403 FORBIDDEN - No access to this campaign
+
+
+UPDATE CAMPAIGN
+---------------
+PATCH /campaigns/{id}/update
+
+Update an existing campaign. All fields are optional.
+
+Path Parameters:
+  id         integer   Campaign ID (required)
+
+Rate Limit: 50 requests/hour
+
+Request Body (all fields optional):
+  {
+    "name": "string (1-100 chars)",
+    "platforms": ["google" | "youtube" | "reddit" | "meta"],
+    "budget": integer (1-10000),
+    "start_date": "YYYY-MM-DD",
+    "end_date": "YYYY-MM-DD",
+    "goal": "string (max 500 chars)",
+    "status": boolean
+  }
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "campaign": {
+        "id": 123,
+        ...updated fields...
+      }
+    }
+  }
+
+Errors:
+  400 VALIDATION_ERROR - Invalid input data
+  400 BUDGET_EXCEEDED - Budget update exceeds monthly limit
+  404 RESOURCE_NOT_FOUND - Campaign not found
+
+
+DELETE CAMPAIGN
+---------------
+DELETE /campaigns/{id}/delete
+
+Permanently delete a campaign. This also removes all asset and audience
+assignments.
+
+Path Parameters:
+  id         integer   Campaign ID (required)
+
+Rate Limit: 10 requests/hour
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "message": "Campaign deleted successfully",
+      "campaign_id": 123
+    }
+  }
+
+Errors:
+  404 RESOURCE_NOT_FOUND - Campaign not found
+
+
+ASSETS
+================================================================================
+
+LIST ASSETS
+-----------
+GET /assets/list
+
+List all assets for your organization.
+
+Query Parameters:
+  limit      integer   Number of assets to return (default: 50, max: 100)
+  offset     integer   Number of assets to skip (default: 0)
+  type       string    Filter by type: "image" | "video" | "text" | "reddit_ad"
+
+Rate Limit: 200 requests/hour
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "assets": [
+        {
+          "id": "uuid",
+          "name": "Summer Ad 1",
+          "type": "text",
+          "ad_format": "rsa",
+          "status": "approved",
+          "created_at": "2025-05-01T10:00:00Z",
+          ...
+        }
+      ],
+      "pagination": {
+        "limit": 50,
+        "offset": 0,
+        "total": 75
+      }
+    }
+  }
+
+
+ASSIGN ASSET TO CAMPAIGN
+------------------------
+POST /campaigns/{id}/assets
+
+Assign an asset to a campaign.
+
+Path Parameters:
+  id         integer   Campaign ID (required)
+
+Request Body:
+  {
+    "asset_id": "uuid (required)"
+  }
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "assignment": {
+        "id": 456,
+        "campaign_id": 123,
+        "asset_id": "uuid",
+        "assigned_at": "2025-05-01T10:00:00Z"
+      }
+    }
+  }
+
+Errors:
+  404 RESOURCE_NOT_FOUND - Campaign or asset not found
+  409 DUPLICATE_RESOURCE - Asset already assigned to this campaign
+
+
+LIST CAMPAIGN ASSETS
+--------------------
+GET /campaigns/{id}/assets
+
+List all assets assigned to a campaign.
+
+Path Parameters:
+  id         integer   Campaign ID (required)
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "assets": [
+        {
+          "id": "uuid",
+          "name": "Summer Ad 1",
+          "type": "text",
+          "assigned_at": "2025-05-01T10:00:00Z",
+          ...
+        }
+      ]
+    }
+  }
+
+
+UNASSIGN ASSET FROM CAMPAIGN
+-----------------------------
+DELETE /campaigns/{id}/assets?asset_id={uuid}
+
+Remove an asset assignment from a campaign.
+
+Path Parameters:
+  id         integer   Campaign ID (required)
+
+Query Parameters:
+  asset_id   uuid      Asset ID (required)
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "message": "Asset unassigned successfully"
+    }
+  }
+
+
+AUDIENCES
+================================================================================
+
+LIST AUDIENCES
+--------------
+GET /audiences/list
+
+List all audiences for your organization.
+
+Query Parameters:
+  limit      integer   Number of audiences to return (default: 50, max: 100)
+  offset     integer   Number of audiences to skip (default: 0)
+  status     string    Filter by status: "active" | "archived"
+
+Rate Limit: 200 requests/hour
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "audiences": [
+        {
+          "id": 1,
+          "name": "Millennials Tech Enthusiasts",
+          "description": "Tech-savvy 25-40 year olds",
+          "age_min": 25,
+          "age_max": 40,
+          "genders": ["male", "female"],
+          "locations": ["United States", "Canada"],
+          "interests": ["technology", "gadgets"],
+          "estimated_size": 50000,
+          "status": "active",
+          "created_at": "2025-05-01T10:00:00Z",
+          ...
+        }
+      ],
+      "pagination": {
+        "limit": 50,
+        "offset": 0,
+        "total": 25
+      }
+    }
+  }
+
+
+ASSIGN AUDIENCE TO CAMPAIGN
+---------------------------
+POST /campaigns/{id}/audiences
+
+Assign an audience to a campaign.
+
+Path Parameters:
+  id         integer   Campaign ID (required)
+
+Request Body:
+  {
+    "audience_id": integer (required)
+  }
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "assignment": {
+        "id": 789,
+        "campaign_id": 123,
+        "audience_id": 1,
+        "assigned_at": "2025-05-01T10:00:00Z"
+      }
+    }
+  }
+
+Errors:
+  404 RESOURCE_NOT_FOUND - Campaign or audience not found
+  409 DUPLICATE_RESOURCE - Audience already assigned to this campaign
+
+
+LIST CAMPAIGN AUDIENCES
+-----------------------
+GET /campaigns/{id}/audiences
+
+List all audiences assigned to a campaign.
+
+Path Parameters:
+  id         integer   Campaign ID (required)
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "audiences": [
+        {
+          "id": 1,
+          "name": "Millennials Tech Enthusiasts",
+          "assigned_at": "2025-05-01T10:00:00Z",
+          ...
+        }
+      ]
+    }
+  }
+
+
+UNASSIGN AUDIENCE FROM CAMPAIGN
+-------------------------------
+DELETE /campaigns/{id}/audiences?audience_id={id}
+
+Remove an audience assignment from a campaign.
+
+Path Parameters:
+  id         integer   Campaign ID (required)
+
+Query Parameters:
+  audience_id integer  Audience ID (required)
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "message": "Audience unassigned successfully"
+    }
+  }
+
+
+BUDGET
+================================================================================
+
+GET BUDGET STATUS
+-----------------
+GET /budget/status
+
+Get budget status for current month and next 2 months.
+
+Query Parameters:
+  year       integer   Year (optional, default: current year)
+  month      integer   Month 1-12 (optional, default: current month)
+
+Response:
+  200 OK
+  {
+    "success": true,
+    "data": {
+      "months": [
+        {
+          "year": 2025,
+          "month": 11,
+          "month_name": "November",
+          "monthly_limit": 10000,
+          "monthly_total": 7500,
+          "remaining": 2500,
+          "utilization_percentage": 75,
+          "campaigns": [
+            {
+              "id": 123,
+              "name": "Summer Sale",
+              "budget": 5000,
+              "start_date": "2025-11-01",
+              "end_date": "2025-11-30"
+            }
+          ]
+        }
+      ]
+    }
+  }
+
+
+RESPONSE HEADERS
+================================================================================
+
+All responses include these headers:
+
+X-Request-ID
+  Unique identifier for the request. Include this in support requests.
+
+X-RateLimit-Limit
+  Total number of requests allowed in the current time window.
+
+X-RateLimit-Remaining
+  Number of requests remaining in the current time window.
+
+X-RateLimit-Reset
+  Unix timestamp when the rate limit resets.
+
+Retry-After (429 responses only)
+  Number of seconds to wait before retrying.
+
+
+VALIDATION RULES
+================================================================================
+
+Campaign Name: 1-100 characters
+Campaign Budget: 1-10,000 (integer)
+Campaign Platforms: At least one of ["google", "youtube", "reddit", "meta"]
+Campaign Dates: YYYY-MM-DD format, end_date must be after start_date
+Campaign Goal: Max 500 characters
+
+Asset Name: 1-100 characters
+Text Ad Headlines: Max 30 characters each
+Text Ad Descriptions: Max 90 characters each
+RSA: 3-15 headlines, 2-4 descriptions
+ETA: Exactly 3 headlines, 2 descriptions
+Reddit Ad Headline: Max 300 characters
+
+Audience Name: 1-100 characters
+Audience Age Range: 13-100, age_min <= age_max
+Audience Genders: ["male", "female", "other", "all"]
+Audience Status: ["active", "archived"]
+
+Pagination Limit: 1-100
+Pagination Offset: >= 0

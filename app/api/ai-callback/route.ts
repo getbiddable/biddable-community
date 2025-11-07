@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient as createBrowserClient } from "@supabase/supabase-js"
+import { logger } from "@/lib/logger"
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,12 +9,12 @@ export async function POST(request: NextRequest) {
     const expectedSecret = process.env.AI_CALLBACK_SECRET
 
     if (!providedSecret || providedSecret !== expectedSecret) {
-      console.error("Invalid callback secret received")
+      logger.error("Invalid callback secret received")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const body = await request.json()
-    console.log("AI callback received:", body)
+    logger.info("AI callback received", { requestId: body.requestId, status: body.status })
 
     const { requestId, status, Key, Id, error, "folder/filename": folderFilename } = body
 
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
         const bucketName = keyParts[0]
         const filename = keyParts.slice(1).join("/")
 
-        console.log("Processing completed request:", {
+        logger.info("Processing completed AI request", {
           requestId,
           bucketName,
           filename,
@@ -85,16 +86,16 @@ export async function POST(request: NextRequest) {
         })
 
         if (assetError) {
-          console.error("Failed to create asset record:", assetError)
+          logger.error("Failed to create asset record", assetError, { requestId })
         } else {
-          console.log("Asset record created successfully for request:", requestId)
+          logger.info("Asset record created successfully", { requestId })
         }
       }
     } else if (status === "failed" || error) {
       updateData.status = "failed"
       updateData.error_message = error || "Unknown error"
       updateData.completed_at = new Date().toISOString()
-      console.error("Request failed:", { requestId, error })
+      logger.error("AI request failed", error, { requestId })
     }
 
     // Update the request
@@ -104,15 +105,15 @@ export async function POST(request: NextRequest) {
       .eq("id", requestId)
 
     if (updateError) {
-      console.error("Failed to update AI request:", updateError)
+      logger.error("Failed to update AI request", updateError, { requestId })
       return NextResponse.json({ error: "Failed to update request" }, { status: 500 })
     }
 
-    console.log("Request updated successfully:", { requestId, status: updateData.status })
+    logger.info("AI request updated successfully", { requestId, status: updateData.status })
 
     return NextResponse.json({ success: true }, { status: 200 })
   } catch (error) {
-    console.error("Error in /api/ai-callback:", error)
+    logger.error("Error in /api/ai-callback", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error occurred" },
       { status: 500 }

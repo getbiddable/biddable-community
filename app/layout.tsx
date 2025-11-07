@@ -4,7 +4,6 @@ import { Roboto } from "next/font/google"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/lib/auth-context"
-import { ChatWidget } from "@/components/chat-widget"
 
 const roboto = Roboto({
   subsets: ["latin"],
@@ -29,7 +28,6 @@ export default function RootLayout({
         <ThemeProvider defaultTheme="dark" storageKey="biddable-ui-theme">
           <AuthProvider>
             {children}
-            <ChatWidget />
           </AuthProvider>
         </ThemeProvider>
       </body>

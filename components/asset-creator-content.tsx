@@ -1,17 +1,19 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Upload, ImageIcon, Video, FileText, Palette, Eye, Sparkles } from "lucide-react"
+import { Upload, ImageIcon, Video, FileText, Palette, Eye, Sparkles, MessageSquare } from "lucide-react"
 import { TextAdForm } from "@/components/text-ad-form"
 import { GoogleSearchPreview } from "@/components/google-search-preview"
 import { ImageUploadForm } from "@/components/image-upload-form"
 import { AIImageForm } from "@/components/ai-image-form"
+import { RedditAdForm, RedditAdPreviewData } from "@/components/reddit-ad-form"
+import { RedditAdPreview } from "@/components/reddit-ad-preview"
 import { TextAdData, AdFormat } from "@/lib/text-ads"
 import { useAuth } from "@/lib/auth-context"
 
@@ -35,7 +37,8 @@ export function AssetCreatorContent() {
   const [assets, setAssets] = useState<AdAsset[]>([])
   const [loadingAssets, setLoadingAssets] = useState(false)
   const [activeTab, setActiveTab] = useState<"create" | "library">("create")
-  const [assetType, setAssetType] = useState<"image" | "video" | "text" | "ai-generate">("image")
+  const [assetType, setAssetType] = useState<"image" | "video" | "text" | "ai-generate" | "reddit">("image")
+  const [libraryFilter, setLibraryFilter] = useState<"all" | "ads" | "images">("all")
 
   // State for text ad preview
   const [textAdPreviewData, setTextAdPreviewData] = useState<TextAdData>({
@@ -44,6 +47,15 @@ export function AssetCreatorContent() {
     paths: [],
   })
   const [textAdPreviewFormat, setTextAdPreviewFormat] = useState<AdFormat>("rsa")
+
+  // State for Reddit ad preview
+  const [redditAdPreviewData, setRedditAdPreviewData] = useState<RedditAdPreviewData>({
+    headline: "",
+    callToAction: "",
+    destinationUrl: "https://",
+    displayUrl: "",
+    imagePreview: null,
+  })
 
   // Fetch assets when library tab is opened
   useEffect(() => {
@@ -107,10 +119,22 @@ export function AssetCreatorContent() {
     }
   }
 
-  const handleTextAdPreview = (data: TextAdData, format: AdFormat) => {
+  const handleTextAdPreview = useCallback((data: TextAdData, format: AdFormat) => {
     setTextAdPreviewData(data)
     setTextAdPreviewFormat(format)
-  }
+  }, [])
+
+  const handleRedditAdPreview = useCallback((data: RedditAdPreviewData) => {
+    setRedditAdPreviewData(data)
+  }, [])
+
+  // Filter assets based on library filter
+  const filteredAssets = assets.filter((asset) => {
+    if (libraryFilter === "all") return true
+    if (libraryFilter === "ads") return asset.type === "text" || asset.type === "reddit_ad"
+    if (libraryFilter === "images") return asset.type === "image" || asset.type === "video"
+    return true
+  })
 
   return (
     <div className="p-8">
@@ -148,7 +172,7 @@ export function AssetCreatorContent() {
               <div>
                 <Label className="text-foreground">Asset Type</Label>
                 <div className="grid grid-cols-2 gap-2 mt-2">
-                  {(["ai-generate", "image", "text", "video"] as const).map((type) => (
+                  {(["ai-generate", "image", "text", "reddit", "video"] as const).map((type) => (
                     <Button
                       key={type}
                       variant={assetType === type ? "default" : "outline"}
@@ -161,6 +185,7 @@ export function AssetCreatorContent() {
                       {type === "image" && <ImageIcon className="h-4 w-4" />}
                       {type === "video" && <Video className="h-4 w-4" />}
                       {type === "text" && <FileText className="h-4 w-4" />}
+                      {type === "reddit" && <MessageSquare className="h-4 w-4" />}
                       <span className="capitalize">{type === "ai-generate" ? "AI Generate" : type}</span>
                     </Button>
                   ))}
@@ -197,12 +222,24 @@ export function AssetCreatorContent() {
               {assetType === "text" && (
                 <TextAdForm onSubmit={handleTextAdSubmit} onPreview={handleTextAdPreview} />
               )}
+
+              {assetType === "reddit" && (
+                <RedditAdForm onSuccess={fetchAssets} onPreview={handleRedditAdPreview} />
+              )}
             </CardContent>
           </Card>
 
           {/* Preview Panel */}
           {assetType === "text" ? (
             <GoogleSearchPreview adData={textAdPreviewData} adFormat={textAdPreviewFormat} />
+          ) : assetType === "reddit" ? (
+            <RedditAdPreview
+              headline={redditAdPreviewData.headline}
+              callToAction={redditAdPreviewData.callToAction}
+              destinationUrl={redditAdPreviewData.destinationUrl}
+              displayUrl={redditAdPreviewData.displayUrl}
+              imagePreview={redditAdPreviewData.imagePreview}
+            />
           ) : assetType === "ai-generate" ? (
             <Card className="bg-card border-border">
               <CardHeader>
@@ -274,16 +311,48 @@ export function AssetCreatorContent() {
       {activeTab === "library" && (
         <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-foreground">Asset Library</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-foreground">Asset Library</CardTitle>
+              <div className="flex space-x-2">
+                <Button
+                  variant={libraryFilter === "all" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setLibraryFilter("all")}
+                  className={libraryFilter === "all" ? "bg-primary hover:bg-primary-hover text-white" : ""}
+                >
+                  All
+                </Button>
+                <Button
+                  variant={libraryFilter === "ads" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setLibraryFilter("ads")}
+                  className={libraryFilter === "ads" ? "bg-primary hover:bg-primary-hover text-white" : ""}
+                >
+                  Ads
+                </Button>
+                <Button
+                  variant={libraryFilter === "images" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setLibraryFilter("images")}
+                  className={libraryFilter === "images" ? "bg-primary hover:bg-primary-hover text-white" : ""}
+                >
+                  Images
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {loadingAssets ? (
               <div className="text-center py-8">
                 <p className="text-muted-foreground">Loading assets...</p>
               </div>
-            ) : assets.length === 0 ? (
+            ) : filteredAssets.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-muted-foreground">No assets found. Create your first asset!</p>
+                <p className="text-muted-foreground">
+                  {assets.length === 0
+                    ? "No assets found. Create your first asset!"
+                    : `No ${libraryFilter === "ads" ? "ads" : "images"} found.`}
+                </p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -301,10 +370,10 @@ export function AssetCreatorContent() {
                     </tr>
                   </thead>
                   <tbody>
-                    {assets.map((asset) => (
+                    {filteredAssets.map((asset) => (
                       <tr key={asset.id} className="border-b border-border hover:bg-muted/50 transition-colors">
                         <td className="py-3 px-4">
-                          {asset.type === "image" && asset.file_url ? (
+                          {(asset.type === "image" || asset.type === "reddit_ad") && asset.file_url ? (
                             <img
                               src={asset.file_url}
                               alt={asset.name}
@@ -315,6 +384,7 @@ export function AssetCreatorContent() {
                               {asset.type === "image" && <ImageIcon className="h-6 w-6 text-muted-foreground" />}
                               {asset.type === "video" && <Video className="h-6 w-6 text-muted-foreground" />}
                               {asset.type === "text" && <FileText className="h-6 w-6 text-muted-foreground" />}
+                              {asset.type === "reddit_ad" && <MessageSquare className="h-6 w-6 text-[#FF4500]" />}
                             </div>
                           )}
                         </td>
@@ -323,7 +393,8 @@ export function AssetCreatorContent() {
                             {asset.type === "image" && <ImageIcon className="h-4 w-4 text-muted-foreground" />}
                             {asset.type === "video" && <Video className="h-4 w-4 text-muted-foreground" />}
                             {asset.type === "text" && <FileText className="h-4 w-4 text-muted-foreground" />}
-                            <span className="text-sm capitalize">{asset.type}</span>
+                            {asset.type === "reddit_ad" && <MessageSquare className="h-4 w-4 text-[#FF4500]" />}
+                            <span className="text-sm capitalize">{asset.type === "reddit_ad" ? "Reddit Ad" : asset.type}</span>
                           </div>
                         </td>
                         <td className="py-3 px-4">

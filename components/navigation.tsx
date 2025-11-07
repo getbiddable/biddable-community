@@ -2,24 +2,29 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { BarChart3, ImageIcon, LayoutDashboard, LogOut, User, Target, Users } from "lucide-react"
+import { BarChart3, ImageIcon, LayoutDashboard, LogOut, User, Target, Users, Menu, X, FileText, TrendingUp, Bot } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { useAuth } from "@/lib/auth-context"
 import { signOut } from "@/lib/auth"
 import { Button } from "./ui/button"
+import { useState } from "react"
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
+  { name: "Ads Agent", href: "/agent-chat", icon: Bot },
   { name: "Campaigns", href: "/campaigns", icon: Target },
   { name: "Audiences", href: "/audiences", icon: Users },
   { name: "Creative", href: "/assets", icon: ImageIcon },
   { name: "Reporting", href: "/reporting", icon: BarChart3, disabled: true },
+  { name: "Agent Logs", href: "/agent-logs", icon: FileText },
+  { name: "Agent Analytics", href: "/agent-analytics", icon: TrendingUp },
 ]
 
 export function Navigation() {
   const pathname = usePathname()
   const router = useRouter()
   const { user } = useAuth()
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   const handleSignOut = async () => {
     await signOut()
@@ -27,8 +32,39 @@ export function Navigation() {
     router.refresh()
   }
 
+  const closeMobileMenu = () => {
+    setIsMobileMenuOpen(false)
+  }
+
   return (
-    <nav className="bg-card border-r border-border w-64 min-h-screen p-6 flex flex-col">
+    <>
+      {/* Mobile hamburger button */}
+      <button
+        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        className="md:hidden fixed top-4 left-4 z-50 p-2 bg-card border border-border rounded-md"
+        aria-label="Toggle menu"
+      >
+        {isMobileMenuOpen ? (
+          <X className="h-6 w-6 text-foreground" />
+        ) : (
+          <Menu className="h-6 w-6 text-foreground" />
+        )}
+      </button>
+
+      {/* Mobile overlay */}
+      {isMobileMenuOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/50 z-30"
+          onClick={closeMobileMenu}
+        />
+      )}
+
+      {/* Navigation sidebar */}
+      <nav className={`
+        bg-card border-r border-border w-64 min-h-screen p-6 flex flex-col
+        fixed md:static top-0 left-0 z-40 transition-transform duration-300 ease-in-out
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-primary">biddable.</h1>
@@ -60,8 +96,11 @@ export function Navigation() {
             <li key={item.name}>
               <Link
                 href={item.href}
-                className={`flex items-center px-4 py-3 text-sm font-medium transition-colors ${
-                  isActive ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                onClick={closeMobileMenu}
+                className={`flex items-center px-4 py-3 text-sm font-medium transition-colors rounded-md ${
+                  isActive || pathname?.startsWith(item.href) && item.href !== "/"
+                    ? "bg-primary text-white"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
               >
                 <item.icon className="mr-3 h-5 w-5" />
@@ -76,6 +115,7 @@ export function Navigation() {
         <div className="mt-auto pt-4 border-t border-border space-y-3">
           <Link
             href="/profile"
+            onClick={closeMobileMenu}
             className="flex items-center space-x-3 px-4 py-2 hover:bg-muted transition-colors rounded-md cursor-pointer"
           >
             <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
@@ -96,5 +136,6 @@ export function Navigation() {
         </div>
       )}
     </nav>
+    </>
   )
 }

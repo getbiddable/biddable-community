@@ -25,12 +25,27 @@ export async function POST(request: Request) {
       )
     }
 
-    // Insert the campaign
+    // Get user's organization
+    const { data: orgData, error: orgError } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (orgError || !orgData) {
+      return NextResponse.json(
+        { error: 'No organization found for user' },
+        { status: 403 }
+      )
+    }
+
+    // Insert the campaign with organization_id
     const { data: campaign, error: insertError } = await supabase
       .from('campaigns')
       .insert({
         campaign_name: name,
         created_by: user.id,
+        organization_id: orgData.organization_id,
         platforms: Array.isArray(platforms) ? platforms : [platforms],
         status: true, // active by default
         budget: parseInt(budget),
@@ -77,11 +92,25 @@ export async function GET(request: Request) {
       )
     }
 
-    // Get all campaigns created by the user
+    // Get user's organization
+    const { data: orgData, error: orgError } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (orgError || !orgData) {
+      return NextResponse.json(
+        { error: 'No organization found for user' },
+        { status: 403 }
+      )
+    }
+
+    // Get all campaigns for the user's organization
     const { data: campaigns, error: campaignsError } = await supabase
       .from('campaigns')
       .select('*')
-      .eq('created_by', user.id)
+      .eq('organization_id', orgData.organization_id)
       .order('created_at', { ascending: false })
 
     if (campaignsError) {

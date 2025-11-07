@@ -1,0 +1,616 @@
+BIDDABLE AGENT API - EXAMPLES
+================================================================================
+
+This document provides practical examples for common API operations.
+
+All examples use curl. Replace YOUR_API_KEY with your actual API key.
+
+BASE_URL=https://your-domain.com/api/v1/agent
+
+
+EXAMPLE 1: CREATE COMPLETE CAMPAIGN
+================================================================================
+
+This example creates a campaign, assigns assets and audiences.
+
+Step 1: Create Campaign
+------------------------
+
+curl -X POST $BASE_URL/campaigns/create \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Holiday Sale 2025",
+    "platforms": ["google", "reddit"],
+    "budget": 5000,
+    "start_date": "2025-12-01",
+    "end_date": "2025-12-31",
+    "goal": "Drive 10,000 website visits and $50,000 in sales"
+  }'
+
+Response:
+{
+  "success": true,
+  "data": {
+    "campaign": {
+      "id": 123,
+      "campaign_name": "Holiday Sale 2025",
+      ...
+    }
+  }
+}
+
+Save the campaign ID for next steps.
+
+
+Step 2: List Available Assets
+------------------------------
+
+curl -X GET "$BASE_URL/assets/list?type=text&limit=10" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+Response:
+{
+  "success": true,
+  "data": {
+    "assets": [
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "name": "Holiday RSA Ad 1",
+        "type": "text",
+        ...
+      }
+    ]
+  }
+}
+
+
+Step 3: Assign Asset to Campaign
+---------------------------------
+
+curl -X POST $BASE_URL/campaigns/123/assets \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "asset_id": "550e8400-e29b-41d4-a716-446655440000"
+  }'
+
+Response:
+{
+  "success": true,
+  "data": {
+    "assignment": {
+      "id": 456,
+      "campaign_id": 123,
+      "asset_id": "550e8400-e29b-41d4-a716-446655440000",
+      "assigned_at": "2025-11-03T10:30:00Z"
+    }
+  }
+}
+
+
+Step 4: Assign Audience to Campaign
+------------------------------------
+
+curl -X POST $BASE_URL/campaigns/123/audiences \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "audience_id": 5
+  }'
+
+Response:
+{
+  "success": true,
+  "data": {
+    "assignment": {
+      "id": 789,
+      "campaign_id": 123,
+      "audience_id": 5,
+      "assigned_at": "2025-11-03T10:35:00Z"
+    }
+  }
+}
+
+
+Step 5: Verify Campaign Setup
+------------------------------
+
+curl -X GET $BASE_URL/campaigns/123/get \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+Response:
+{
+  "success": true,
+  "data": {
+    "campaign": {
+      "id": 123,
+      "campaign_name": "Holiday Sale 2025",
+      "campaign_assets": [
+        {
+          "asset_id": "550e8400-e29b-41d4-a716-446655440000",
+          "assets": {
+            "name": "Holiday RSA Ad 1",
+            ...
+          }
+        }
+      ],
+      "campaign_audiences": [
+        {
+          "audience_id": 5,
+          "audiences": {
+            "name": "Holiday Shoppers",
+            ...
+          }
+        }
+      ],
+      ...
+    }
+  }
+}
+
+
+EXAMPLE 2: UPDATE CAMPAIGN BUDGET
+================================================================================
+
+Check current budget status, then update campaign budget.
+
+Step 1: Check Budget Status
+----------------------------
+
+curl -X GET "$BASE_URL/budget/status" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+Response:
+{
+  "success": true,
+  "data": {
+    "months": [
+      {
+        "year": 2025,
+        "month": 12,
+        "month_name": "December",
+        "monthly_limit": 10000,
+        "monthly_total": 5000,
+        "remaining": 5000,
+        "utilization_percentage": 50,
+        "campaigns": [
+          {
+            "id": 123,
+            "name": "Holiday Sale 2025",
+            "budget": 5000
+          }
+        ]
+      }
+    ]
+  }
+}
+
+
+Step 2: Update Campaign Budget
+-------------------------------
+
+We have $5000 remaining, so we can increase to $7000.
+
+curl -X PATCH $BASE_URL/campaigns/123/update \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "budget": 7000
+  }'
+
+Response:
+{
+  "success": true,
+  "data": {
+    "campaign": {
+      "id": 123,
+      "budget": 7000,
+      ...
+    }
+  }
+}
+
+
+EXAMPLE 3: LIST AND FILTER CAMPAIGNS
+================================================================================
+
+Get Active Campaigns Only
+--------------------------
+
+curl -X GET "$BASE_URL/campaigns/list?status=active&limit=20" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+
+Get Campaigns with Pagination
+------------------------------
+
+Get campaigns 21-40 (page 2 with 20 per page):
+
+curl -X GET "$BASE_URL/campaigns/list?limit=20&offset=20" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+
+EXAMPLE 4: HANDLE VALIDATION ERRORS
+================================================================================
+
+Attempt to Create Invalid Campaign
+-----------------------------------
+
+curl -X POST $BASE_URL/campaigns/create \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "",
+    "platforms": [],
+    "budget": 0,
+    "start_date": "2025-12-31",
+    "end_date": "2025-12-01"
+  }'
+
+Response:
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Validation failed",
+    "details": {
+      "errors": [
+        {
+          "field": "name",
+          "message": "Campaign name is required"
+        },
+        {
+          "field": "platforms",
+          "message": "At least one platform is required"
+        },
+        {
+          "field": "budget",
+          "message": "Budget must be at least $1"
+        },
+        {
+          "field": "end_date",
+          "message": "end_date must be after start_date"
+        }
+      ]
+    },
+    "timestamp": "2025-11-03T10:00:00Z",
+    "request_id": "req_abc123"
+  }
+}
+
+
+EXAMPLE 5: HANDLE BUDGET EXCEEDED
+================================================================================
+
+Attempt to Exceed Monthly Budget
+---------------------------------
+
+curl -X POST $BASE_URL/campaigns/create \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Over Budget Campaign",
+    "platforms": ["google"],
+    "budget": 8000,
+    "start_date": "2025-12-01",
+    "end_date": "2025-12-31"
+  }'
+
+Response (when current month already has $8000 allocated):
+{
+  "success": false,
+  "error": {
+    "code": "BUDGET_EXCEEDED",
+    "message": "Campaign budget exceeds monthly limit of $10,000",
+    "details": {
+      "monthly_limit": 10000,
+      "current_total": 8000,
+      "requested": 8000,
+      "available": 2000,
+      "affected_month": "December 2025",
+      "campaigns": [
+        {
+          "id": 123,
+          "name": "Holiday Sale 2025",
+          "budget": 5000
+        },
+        {
+          "id": 124,
+          "name": "Winter Promo",
+          "budget": 3000
+        }
+      ]
+    },
+    "timestamp": "2025-11-03T10:00:00Z",
+    "request_id": "req_def456"
+  }
+}
+
+
+EXAMPLE 6: MANAGE ASSET ASSIGNMENTS
+================================================================================
+
+Assign Multiple Assets to Campaign
+-----------------------------------
+
+curl -X POST $BASE_URL/campaigns/123/assets \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"asset_id": "asset-uuid-1"}'
+
+curl -X POST $BASE_URL/campaigns/123/assets \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"asset_id": "asset-uuid-2"}'
+
+
+List All Assigned Assets
+-------------------------
+
+curl -X GET $BASE_URL/campaigns/123/assets \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+
+Unassign Asset from Campaign
+-----------------------------
+
+curl -X DELETE "$BASE_URL/campaigns/123/assets?asset_id=asset-uuid-1" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+
+EXAMPLE 7: HANDLE RATE LIMITS
+================================================================================
+
+Making Multiple Requests with Rate Limit Handling
+--------------------------------------------------
+
+First request succeeds:
+
+curl -X GET $BASE_URL/campaigns/list \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -i
+
+HTTP/1.1 200 OK
+X-RateLimit-Limit: 200
+X-RateLimit-Remaining: 199
+X-RateLimit-Reset: 1699027200
+...
+
+After many requests, rate limit exceeded:
+
+curl -X GET $BASE_URL/campaigns/list \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -i
+
+HTTP/1.1 429 Too Many Requests
+X-RateLimit-Limit: 200
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1699027200
+Retry-After: 120
+
+{
+  "success": false,
+  "error": {
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Rate limit exceeded. Please try again later.",
+    "details": {
+      "limit": 200,
+      "window": 3600,
+      "retry_after": 120
+    },
+    "timestamp": "2025-11-03T10:00:00Z",
+    "request_id": "req_ghi789"
+  }
+}
+
+Wait 120 seconds, then retry.
+
+
+EXAMPLE 8: DELETE CAMPAIGN
+================================================================================
+
+Delete Campaign and Verify
+---------------------------
+
+curl -X DELETE $BASE_URL/campaigns/123/delete \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+Response:
+{
+  "success": true,
+  "data": {
+    "message": "Campaign deleted successfully",
+    "campaign_id": 123
+  }
+}
+
+Verify deletion:
+
+curl -X GET $BASE_URL/campaigns/123/get \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+Response:
+{
+  "success": false,
+  "error": {
+    "code": "RESOURCE_NOT_FOUND",
+    "message": "Campaign with ID 123 not found",
+    "details": {
+      "resource": "Campaign",
+      "id": 123
+    },
+    "timestamp": "2025-11-03T10:05:00Z",
+    "request_id": "req_jkl012"
+  }
+}
+
+
+PYTHON EXAMPLE
+================================================================================
+
+Complete Python example using requests library:
+
+import requests
+import time
+
+BASE_URL = "https://your-domain.com/api/v1/agent"
+API_KEY = "YOUR_API_KEY"
+
+headers = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json"
+}
+
+def create_campaign(name, platforms, budget, start_date, end_date, goal=None):
+    data = {
+        "name": name,
+        "platforms": platforms,
+        "budget": budget,
+        "start_date": start_date,
+        "end_date": end_date,
+        "goal": goal
+    }
+
+    response = requests.post(
+        f"{BASE_URL}/campaigns/create",
+        headers=headers,
+        json=data
+    )
+
+    result = response.json()
+
+    if not result["success"]:
+        error = result["error"]
+        if error["code"] == "RATE_LIMIT_EXCEEDED":
+            retry_after = int(response.headers.get("Retry-After", 60))
+            print(f"Rate limited. Waiting {retry_after} seconds...")
+            time.sleep(retry_after)
+            return create_campaign(name, platforms, budget, start_date, end_date, goal)
+        else:
+            raise Exception(f"API Error: {error['code']} - {error['message']}")
+
+    return result["data"]["campaign"]
+
+def list_campaigns(limit=50, offset=0, status=None):
+    params = {"limit": limit, "offset": offset}
+    if status:
+        params["status"] = status
+
+    response = requests.get(
+        f"{BASE_URL}/campaigns/list",
+        headers=headers,
+        params=params
+    )
+
+    result = response.json()
+
+    if not result["success"]:
+        raise Exception(f"API Error: {result['error']['code']}")
+
+    return result["data"]["campaigns"]
+
+def check_budget_status():
+    response = requests.get(
+        f"{BASE_URL}/budget/status",
+        headers=headers
+    )
+
+    result = response.json()
+
+    if not result["success"]:
+        raise Exception(f"API Error: {result['error']['code']}")
+
+    return result["data"]["months"]
+
+# Usage
+try:
+    # Create campaign
+    campaign = create_campaign(
+        name="Python Test Campaign",
+        platforms=["google", "reddit"],
+        budget=3000,
+        start_date="2025-12-01",
+        end_date="2025-12-31",
+        goal="Test campaign from Python"
+    )
+    print(f"Created campaign: {campaign['id']}")
+
+    # Check budget
+    budget_status = check_budget_status()
+    for month in budget_status:
+        print(f"{month['month_name']}: ${month['remaining']} remaining")
+
+    # List campaigns
+    campaigns = list_campaigns(limit=10, status="active")
+    print(f"Found {len(campaigns)} active campaigns")
+
+except Exception as e:
+    print(f"Error: {e}")
+
+
+JAVASCRIPT EXAMPLE
+================================================================================
+
+Complete JavaScript example using fetch:
+
+const BASE_URL = 'https://your-domain.com/api/v1/agent';
+const API_KEY = 'YOUR_API_KEY';
+
+const headers = {
+  'Authorization': `Bearer ${API_KEY}`,
+  'Content-Type': 'application/json'
+};
+
+async function createCampaign(data) {
+  const response = await fetch(`${BASE_URL}/campaigns/create`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(data)
+  });
+
+  const result = await response.json();
+
+  if (!result.success) {
+    throw new Error(`${result.error.code}: ${result.error.message}`);
+  }
+
+  return result.data.campaign;
+}
+
+async function listCampaigns(limit = 50, offset = 0) {
+  const params = new URLSearchParams({ limit, offset });
+  const response = await fetch(`${BASE_URL}/campaigns/list?${params}`, {
+    headers
+  });
+
+  const result = await response.json();
+
+  if (!result.success) {
+    throw new Error(`${result.error.code}: ${result.error.message}`);
+  }
+
+  return result.data.campaigns;
+}
+
+// Usage
+(async () => {
+  try {
+    const campaign = await createCampaign({
+      name: 'JS Test Campaign',
+      platforms: ['google', 'reddit'],
+      budget: 3000,
+      start_date: '2025-12-01',
+      end_date: '2025-12-31',
+      goal: 'Test campaign from JavaScript'
+    });
+
+    console.log(`Created campaign: ${campaign.id}`);
+
+    const campaigns = await listCampaigns(10);
+    console.log(`Found ${campaigns.length} campaigns`);
+
+  } catch (error) {
+    console.error('Error:', error.message);
+  }
+})();

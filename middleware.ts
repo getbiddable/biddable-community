@@ -34,8 +34,14 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  // Internal-only routes - require specific email
+  const internalRoutes = ["/agent-logs", "/agent-analytics"]
+  const isInternalRoute = internalRoutes.some((route) =>
+    request.nextUrl.pathname === route || request.nextUrl.pathname.startsWith(route + "/")
+  )
+
   // Protected routes - require authentication
-  const protectedRoutes = ["/", "/campaigns", "/audiences", "/assets", "/reporting"]
+  const protectedRoutes = ["/", "/campaigns", "/audiences", "/assets", "/reporting", "/settings"]
   const isProtectedRoute = protectedRoutes.some((route) =>
     request.nextUrl.pathname === route || request.nextUrl.pathname.startsWith(route + "/")
   )
@@ -45,6 +51,27 @@ export async function middleware(request: NextRequest) {
   const isPublicRoute = publicRoutes.some((route) =>
     request.nextUrl.pathname.startsWith(route)
   )
+
+  // Check internal-only routes first
+  if (isInternalRoute) {
+    if (!user) {
+      // Not logged in - redirect to login
+      const url = request.nextUrl.clone()
+      url.pathname = "/login"
+      return NextResponse.redirect(url)
+    }
+
+    // Check if user has internal access (ops@getbiddable.com only)
+    const internalEmails = ["ops@getbiddable.com"]
+    const hasInternalAccess = user.email && internalEmails.includes(user.email.toLowerCase())
+
+    if (!hasInternalAccess) {
+      // Logged in but not authorized - redirect to dashboard
+      const url = request.nextUrl.clone()
+      url.pathname = "/"
+      return NextResponse.redirect(url)
+    }
+  }
 
   if (isProtectedRoute && !user) {
     // Redirect to login if trying to access protected route without auth

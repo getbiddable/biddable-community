@@ -77,7 +77,6 @@ export function ChatWidget() {
         },
         body: JSON.stringify({
           endpoint: endpoint,
-          model: "gpt-3.5-turbo",
           messages: [
             {
               role: "system",
